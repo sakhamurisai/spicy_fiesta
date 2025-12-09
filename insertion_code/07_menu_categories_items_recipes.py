@@ -1,59 +1,107 @@
-# 07_menu_categories_items_recipes.py
-from utils import get_spark, write_parquet
+"""Menu categories, items, and recipes generation module."""
+import sys
+import random
+from typing import Optional
+from pyspark.sql import SparkSession, DataFrame
 import pyspark.sql.functions as F
 
-def main(output_root="./output_parquet"):
-    spark = get_spark("menu")
-    categories = [("CAT-01","Tacos"),("CAT-02","Burritos"),("CAT-03","Sides"),("CAT-04","Drinks")]
-    cat_df = spark.createDataFrame(categories, ["CategoryCode","CategoryName"]) \
-                  .withColumn("CategoryID", F.monotonically_increasing_id()+1) \
-                  .withColumn("IsActive", F.lit(1)).withColumn("CreatedDate", F.current_timestamp()) \
-                  .select("CategoryID","CategoryCode","CategoryName","IsActive","CreatedDate")
-    write_parquet(cat_df, f"{output_root}/menu.Categories")
+try:
+    from utils import get_spark, write_parquet
+except ImportError:
+    sys.path.insert(0, '.')
+    from utils import get_spark, write_parquet
 
-    # Items (300)
-    items = []
-    for i in range(1,301):
-        code = f"ITM-{i:04d}"
-        name = f"Menu Item {i:04d}"
-        cat = ((i-1) % 4) + 1
-        base = round(1.99 + (i % 10) * 0.75,2)
-        items.append((code,name,cat,base))
-    items_df = spark.createDataFrame(items, ["ItemCode","ItemName","CategoryID","BasePrice"]) \
-             .withColumn("ItemID", F.monotonically_increasing_id()+1) \
-             .withColumn("IsActive", F.lit(1)) \
-             .withColumn("LaunchDateID", F.lit(10000)) \
-             .withColumn("CreatedDate", F.current_timestamp()) \
-             .select("ItemID","ItemCode","ItemName","CategoryID","BasePrice","IsActive","LaunchDateID","CreatedDate")
-    write_parquet(items_df, f"{output_root}/menu.Items")
+DEFAULT_OUTPUT_ROOT = "./output_parquet"
+NUM_ITEMS = 300
 
-    # Ingredients (raw materials mapped to inv.Items later)
-    ingredients = [("ING-01","Flour", "lb"),("ING-02","Beef","lb"),("ING-03","Cheese","lb"),("ING-04","Tomato","lb"),("ING-05","Lettuce","lb"),("ING-06","Oil","gal"),("ING-07","Soda Syrup","gal")]
-    ing_df = spark.createDataFrame(ingredients, ["IngredientCode","IngredientName","UnitOfMeasure"]) \
-                .withColumn("IngredientID", F.monotonically_increasing_id()+1) \
-                .withColumn("CreatedDate", F.current_timestamp()) \
-                .select("IngredientID","IngredientCode","IngredientName","UnitOfMeasure","CreatedDate")
-    write_parquet(ing_df, f"{output_root}/menu.Ingredients")
+CATEGORIES_DATA = [
+    ("CAT-01", "Tacos"),
+    ("CAT-02", "Burritos"),
+    ("CAT-03", "Sides"),
+    ("CAT-04", "Drinks")
+]
 
-    # Recipes: map each menu item to 2-4 ingredients with quantities
-    import random
-    rows = []
-    item_ids = [r.ItemID for r in items_df.select("ItemID").collect()]
-    ing_ids = [r.IngredientID for r in ing_df.select("IngredientID").collect()]
-    for it in item_ids:
-        k = random.randint(2,4)
-        picks = random.sample(ing_ids, k)
-        for pid in picks:
-            qty = round(random.uniform(0.05, 2.0),3)  # quantity in unit of ingredient's UoM
-            rows.append((it, pid, qty))
-    rec_df = spark.createDataFrame(rows, ["ItemID","IngredientID","Quantity"]) \
-                 .withColumn("RecipeItemID", F.monotonically_increasing_id()+1) \
-                 .withColumn("CreatedDate", F.current_timestamp())
-    write_parquet(rec_df, f"{output_root}/menu.RecipeItems")
+INGREDIENTS_DATA = [
+    ("ING-01", "Flour", "lb"),
+    ("ING-02", "Beef", "lb"),
+    ("ING-03", "Cheese", "lb"),
+    ("ING-04", "Tomato", "lb"),
+    ("ING-05", "Lettuce", "lb"),
+    ("ING-06", "Oil", "gal"),
+    ("ING-07", "Soda Syrup", "gal")
+]
 
-    spark.stop()
+def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tuple:
+    """Create all menu-related DataFrames."""
+    if seed:
+        random.seed(seed)
+    
+    # Categories
+    cat_df = spark.createDataFrame(CATEGORIES_DATA, ["CategoryCode", "CategoryName"])
+    cat_df = (cat_df
+        .withColumn("CategoryID", F.monotonically_increasing_id() + 1)
+        .withColumn("IsActive", F.lit(1))
+        .withColumn("CreatedDate", F.current_timestamp())
+        .select("CategoryID", "CategoryCode", "CategoryName", "IsActive", "CreatedDate")
+    )
+    
+    # Items
+    items = [(f"ITM-{i:04d}", f"Menu Item {i:04d}", ((i-1) % 4) + 1,
+             round(1.99 + (i % 10) * 0.75, 2)) for i in range(1, NUM_ITEMS + 1)]
+    items_df = spark.createDataFrame(items, ["ItemCode", "ItemName", "CategoryID", "BasePrice"])
+    items_df = (items_df
+        .withColumn("ItemID", F.monotonically_increasing_id() + 1)
+        .withColumn("IsActive", F.lit(1))
+        .withColumn("LaunchDateID", F.lit(10000))
+        .withColumn("CreatedDate", F.current_timestamp())
+        .select("ItemID", "ItemCode", "ItemName", "CategoryID", "BasePrice",
+               "IsActive", "LaunchDateID", "CreatedDate")
+    )
+    
+    # Ingredients
+    ing_df = spark.createDataFrame(INGREDIENTS_DATA, ["IngredientCode", "IngredientName", "UnitOfMeasure"])
+    ing_df = (ing_df
+        .withColumn("IngredientID", F.monotonically_increasing_id() + 1)
+        .withColumn("CreatedDate", F.current_timestamp())
+        .select("IngredientID", "IngredientCode", "IngredientName", "UnitOfMeasure", "CreatedDate")
+    )
+    
+    # Recipes
+    item_ids = [r.ItemID for r in items_df.collect()]
+    ing_ids = [r.IngredientID for r in ing_df.collect()]
+    
+    recipe_rows = []
+    for item_id in item_ids:
+        num_ingredients = random.randint(2, 4)
+        selected_ings = random.sample(ing_ids, num_ingredients)
+        for ing_id in selected_ings:
+            qty = round(random.uniform(0.05, 2.0), 3)
+            recipe_rows.append((item_id, ing_id, qty))
+    
+    rec_df = spark.createDataFrame(recipe_rows, ["ItemID", "IngredientID", "Quantity"])
+    rec_df = (rec_df
+        .withColumn("RecipeItemID", F.monotonically_increasing_id() + 1)
+        .withColumn("CreatedDate", F.current_timestamp())
+    )
+    
+    return cat_df, items_df, ing_df, rec_df
 
-if __name__=="__main__":
-    import sys
-    out = sys.argv[1] if len(sys.argv)>1 else "./output_parquet"
-    main(out)
+def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
+    """Generate menu tables."""
+    spark = None
+    try:
+        spark = get_spark("menu")
+        cat_df, items_df, ing_df, rec_df = create_menu_dataframes(spark)
+        
+        write_parquet(cat_df, f"{output_root}/menu.Categories")
+        write_parquet(items_df, f"{output_root}/menu.Items")
+        write_parquet(ing_df, f"{output_root}/menu.Ingredients")
+        write_parquet(rec_df, f"{output_root}/menu.RecipeItems")
+        
+        print("Menu tables created successfully")
+    finally:
+        if spark:
+            spark.stop()
+
+if __name__ == "__main__":
+    main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT)
