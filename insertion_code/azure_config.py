@@ -1,38 +1,58 @@
 # azure_config.py
 """
-Azure Blob Storage Configuration
-Replace these values with your actual Azure credentials
+Azure Blob Storage Configuration and Write Function
 """
 
 # Azure Storage Account Details
-STORAGE_ACCOUNT_NAME = "your_storage_account_name"  # Replace with your storage account name
-STORAGE_ACCOUNT_KEY = "your_storage_account_key"    # Replace with your storage account key
-CONTAINER_NAME = "spicyfiesta-data"                  # Replace with your container name
+STORAGE_ACCOUNT_NAME = "your_storage_account_name"
+STORAGE_ACCOUNT_KEY = "your_storage_account_key"
+CONTAINER_NAME = "spicyfiesta-data"
 
-# Folder structure in blob storage
-FOLDERS = {
-    "dim": "dimensions",          # dim.Calendar
-    "store": "store",            # store.States, store.Locations, store.OperatingHours
-    "emp": "employee",           # emp.Positions, emp.Employees, etc.
-    "menu": "menu",              # menu.Categories, menu.Items, etc.
-    "inv": "inventory",          # inv.Items, inv.StoreInventory, etc.
-    "promo": "promotions",       # promo.Promotions, promo.PromotionItems, etc.
-    "loyalty": "loyalty",        # loyalty.Members, loyalty.Rewards, etc.
-    "ord": "orders",             # ord.Orders, ord.OrderItems, etc.
-    "finance": "finance",        # finance.Ledger, finance.DailySalesSummary, etc.
-    "dbo": "system"              # dbo.SystemConfiguration, dbo.AuditLog, etc.
+# Schema to Folder Mapping
+SCHEMA_FOLDERS = {
+    "dim": "dimensions",
+    "store": "store",
+    "emp": "employee",
+    "menu": "menu",
+    "inv": "inventory",
+    "promo": "promotions",
+    "loyalty": "loyalty",
+    "ord": "orders",
+    "finance": "finance",
+    "dbo": "system"
 }
 
-def get_output_path(schema, table_name):
+
+def get_azure_blob_path(table_path):
     """
-    Generate the full Azure path for a given schema and table
+    Convert local table path to Azure Blob Storage path.
     
     Args:
-        schema: Schema name (e.g., "store", "emp", "ord")
-        table_name: Table name (e.g., "States", "Employees", "Orders")
+        table_path: Path in format "schema.TableName" (e.g., "store.States")
     
     Returns:
-        Relative path like "store/States"
+        Full Azure Blob Storage wasbs:// path
     """
-    folder = FOLDERS.get(schema, schema)
-    return f"{folder}/{table_name}"
+    # Extract schema and table name
+    parts = table_path.split('.')
+    if len(parts) != 2:
+        raise ValueError(f"Invalid table path format: {table_path}. Expected 'schema.TableName'")
+    
+    schema, table_name = parts
+    folder = SCHEMA_FOLDERS.get(schema, schema)
+    
+    # Construct Azure Blob Storage path
+    return f"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT_NAME}.blob.core.windows.net/{folder}/{table_name}"
+
+
+def configure_azure_blob_storage(spark):
+    """
+    Configure Spark session with Azure Blob Storage credentials.
+    
+    Args:
+        spark: SparkSession instance
+    """
+    spark.conf.set(
+        f"fs.azure.account.key.{STORAGE_ACCOUNT_NAME}.blob.core.windows.net",
+        STORAGE_ACCOUNT_KEY
+    )
