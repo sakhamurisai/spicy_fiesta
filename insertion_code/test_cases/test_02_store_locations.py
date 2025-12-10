@@ -7,13 +7,14 @@ import shutil
 import os
 import sys
 
-import os
-TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Get the directory where this test file is located
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TEST_DIR)
+
 from utils import get_spark
 import importlib.util
 
-# Load modules
+# Load modules from the same directory
 spec_states = importlib.util.spec_from_file_location("states_module", os.path.join(TEST_DIR, "01_store_states.py"))
 states_module = importlib.util.module_from_spec(spec_states)
 spec_states.loader.exec_module(states_module)

@@ -1,148 +1,139 @@
 """
-Store locations table generation module.
+Store Locations data generator.
 
-Creates store location records with addresses, state mappings, and operational attributes.
+Generates store location data with proper foreign key references to states.
 """
-
-import sys
-from typing import List, Tuple
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet, validate_output_path
 import pyspark.sql.functions as F
-from pyspark.sql.types import IntegerType
+from pyspark.sql.window import Window
+from pyspark.sql.functions import row_number
+import logging
 
-# Hardcoded import path
-sys.path.insert(0, r'd:\Projects\spicy_fiesta\spicy_fiesta\insertion_code')
-from utils import get_spark, write_parquet
-
-
-# Constants
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
-DEFAULT_NUM_LOCATIONS = 200
+logger = logging.getLogger(__name__)
 
 
-def create_locations_dataframe(
-    spark: SparkSession,
-    num_locations: int,
-    states_df: DataFrame
-) -> DataFrame:
+def create_locations_dataframe(spark, output_root: str, n_locations: int = 200):
     """
-    Create store locations DataFrame.
+    Create DataFrame with store location data.
     
     Args:
-        spark: Active SparkSession
-        num_locations: Number of locations to generate
-        states_df: DataFrame containing state information
+        spark: SparkSession instance
+        output_root: Path to read states data
+        n_locations: Number of locations to generate
         
     Returns:
-        DataFrame with store locations data
-        
-    Raises:
-        ValueError: If parameters are invalid
+        DataFrame with location information
     """
-    if spark is None:
-        raise ValueError("SparkSession cannot be None")
+    logger.info(f"Creating {n_locations} store locations")
     
-    if num_locations <= 0:
-        raise ValueError("num_locations must be greater than 0")
+    # Load states for valid StateID references
+    states_df = spark.read.parquet(f"{output_root}/store.States") \
+                     .select("StateID", "StateCode")
     
-    if states_df is None or states_df.rdd.isEmpty():
-        raise ValueError("states_df cannot be None or empty")
+    state_count = states_df.count()
+    if state_count == 0:
+        raise ValueError("No states found. Please run 01_store_states.py first")
     
-    # Get state count for modulo operation
-    num_states = states_df.count()
+    # Generate locations using Spark operations (avoid collect for large datasets)
+    locations = spark.range(1, n_locations + 1).toDF("LocationSeq")
     
-    # Generate location records
-    location_rows: List[Tuple] = []
-    for i in range(1, num_locations + 1):
-        store_number = f"SF-{i:05d}"
-        store_name = f"Spicy Fiesta #{i:05d}"
-        address = f"{100 + i} Main St"
-        city = f"City{i % 100}"
-        zip_code = f"{90000 + (i % 1000)}"
-        state_id = int((i % num_states) + 1)
-        
-        location_rows.append((
-            store_number, store_name, address, city, state_id, zip_code
-        ))
+    locations = locations \
+        .withColumn("StoreNumber", F.concat(F.lit("SF-"), F.lpad(F.col("LocationSeq").cast("string"), 5, "0"))) \
+        .withColumn("StoreName", F.concat(F.lit("Spicy Fiesta #"), F.lpad(F.col("LocationSeq").cast("string"), 5, "0"))) \
+        .withColumn("AddressLine1", F.concat(F.col("LocationSeq") + 100, F.lit(" Main St"))) \
+        .withColumn("City", F.concat(F.lit("City"), (F.col("LocationSeq") % 100).cast("string"))) \
+        .withColumn("StateID", ((F.col("LocationSeq") % state_count) + 1).cast("int")) \
+        .withColumn("ZipCode", F.lpad((90000 + (F.col("LocationSeq") % 1000)).cast("string"), 5, "0"))
     
-    # Create DataFrame
-    locations_df = spark.createDataFrame(
-        location_rows,
-        ["StoreNumber", "StoreName", "AddressLine1", "City", "StateID", "ZipCode"]
-    )
-    
-    # Add additional columns
-    locations_df = (
-        locations_df
-        .withColumn("LocationID", (F.monotonically_increasing_id() + 1).cast(IntegerType()))
-        .withColumn("LocationGUID", F.expr("uuid()"))
-        .withColumn("IsActive", F.lit(1))
-        .withColumn("CreatedDate", F.current_timestamp())
-        .withColumn("ModifiedDate", F.current_timestamp())
-        .withColumn("StoreType", F.lit("Standalone"))
-        .withColumn("HasDriveThru", F.lit(1))
-        .withColumn("HasDineIn", F.lit(1))
-        .withColumn("OpeningDateID", F.lit(1).cast(IntegerType()))
-        .withColumn("ClosingDateID", F.lit(None).cast(IntegerType()))
-        .withColumn("PhoneNumber", F.lit("(555)000-0000"))
-        .withColumn("CreatedBy", F.lit("system"))
+    # Add required columns
+    window_spec = Window.orderBy("LocationSeq")
+    locations = locations \
+        .withColumn("LocationID", row_number().over(window_spec)) \
+        .withColumn("LocationGUID", F.expr("uuid()")) \
+        .withColumn("IsActive", F.lit(1)) \
+        .withColumn("CreatedDate", F.current_timestamp()) \
+        .withColumn("ModifiedDate", F.current_timestamp()) \
+        .withColumn("StoreType", F.lit("Standalone")) \
+        .withColumn("HasDriveThru", F.lit(1)) \
+        .withColumn("HasDineIn", F.lit(1)) \
+        .withColumn("OpeningDateID", F.lit(1)) \
+        .withColumn("ClosingDateID", F.lit(None).cast("int")) \
+        .withColumn("PhoneNumber", F.lit("(555)000-0000")) \
+        .withColumn("CreatedBy", F.lit("system")) \
         .withColumn("ModifiedBy", F.lit("system"))
-    )
     
-    # Select columns in final order
-    column_order = [
-        "LocationID", "LocationGUID", "StoreNumber", "StoreName", "AddressLine1",
-        "City", "StateID", "ZipCode", "PhoneNumber", "StoreType", "HasDriveThru",
-        "HasDineIn", "OpeningDateID", "ClosingDateID", "IsActive", "CreatedDate",
-        "ModifiedDate", "CreatedBy", "ModifiedBy"
+    # Select final columns in order
+    columns = [
+        "LocationID", "LocationGUID", "StoreNumber", "StoreName",
+        "AddressLine1", "City", "StateID", "ZipCode", "PhoneNumber",
+        "StoreType", "HasDriveThru", "HasDineIn", "OpeningDateID",
+        "ClosingDateID", "IsActive", "CreatedDate", "ModifiedDate",
+        "CreatedBy", "ModifiedBy"
     ]
     
-    return locations_df.select(*column_order)
+    return locations.select(*columns)
 
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT, num_locations: int = DEFAULT_NUM_LOCATIONS) -> None:
+def validate_locations_data(df, expected_count: int):
     """
-    Generate store locations table and write to Parquet.
+    Validate locations DataFrame for data quality.
+    
+    Args:
+        df: Locations DataFrame to validate
+        expected_count: Expected number of locations
+        
+    Raises:
+        ValueError: If validation fails
+    """
+    count = df.count()
+    if count != expected_count:
+        raise ValueError(f"Expected {expected_count} locations, got {count}")
+    
+    # Check for duplicate store numbers
+    distinct_numbers = df.select("StoreNumber").distinct().count()
+    if distinct_numbers != count:
+        raise ValueError("Duplicate store numbers found")
+    
+    # Validate StateID is positive
+    invalid_states = df.filter(F.col("StateID") <= 0).count()
+    if invalid_states > 0:
+        raise ValueError(f"Found {invalid_states} locations with invalid StateID")
+    
+    logger.info("Locations data validation passed")
+
+
+def main(output_root: str = "./output_parquet", n_locations: int = 200):
+    """
+    Main execution function for locations data generation.
     
     Args:
         output_root: Root directory for output Parquet files
-        num_locations: Number of locations to generate
-        
-    Raises:
-        ValueError: If parameters are invalid
-        Exception: If data generation or writing fails
+        n_locations: Number of locations to generate
     """
-    if not output_root:
-        raise ValueError("output_root must be a non-empty string")
+    validate_output_path(output_root)
     
-    if num_locations <= 0:
-        raise ValueError("num_locations must be greater than 0")
+    spark = get_spark("locations")
     
-    spark = None
     try:
-        spark = get_spark("locations")
+        locations_df = create_locations_dataframe(spark, output_root, n_locations)
         
-        # Read states dimension
-        states_df = spark.read.parquet(f"{output_root}/store.States").select("StateID", "StateCode")
+        # Validate before writing
+        validate_locations_data(locations_df, n_locations)
         
-        # Create locations
-        locations_df = create_locations_dataframe(spark, num_locations, states_df)
+        # Write to Parquet
+        write_parquet(locations_df, f"{output_root}/store.Locations")
         
-        output_path = f"{output_root}/store.Locations"
-        write_parquet(locations_df, output_path)
-        
-        print(f"Store locations table successfully written to {output_path}")
-        print(f"Total locations created: {locations_df.count()}")
+        logger.info(f"Locations data generation completed: {n_locations} locations created")
         
     except Exception as e:
-        print(f"Error generating store locations: {str(e)}")
+        logger.error(f"Failed to generate locations data: {e}")
         raise
     finally:
-        if spark is not None:
-            spark.stop()
+        spark.stop()
 
 
 if __name__ == "__main__":
-    output_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT
-    num_locs = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_NUM_LOCATIONS
-    main(output_path, num_locs)
+    import sys
+    output_path = sys.argv[1] if len(sys.argv) > 1 else "./output_parquet"
+    n_locs = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    main(output_path, n_locs)

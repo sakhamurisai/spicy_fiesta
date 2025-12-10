@@ -14,15 +14,15 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType
 import tempfile
 import shutil
-import os
-
 # Import the module to test
 import sys
 import os
-TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, TEST_DIR)
-from utils import get_spark, write_parquet
 
+# Get the directory where this test file is located
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, TEST_DIR)
+
+from utils import get_spark, write_parquet
 
 class TestGetSpark:
     """Test suite for get_spark function."""

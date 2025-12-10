@@ -4,7 +4,6 @@ Comprehensive test suite for 0_calendar.py module.
 Tests cover:
 - Calendar DataFrame creation
 - Date range validation
-
 - Column presence and types
 - Data integrity
 - Edge cases
@@ -20,12 +19,15 @@ from datetime import datetime, date
 
 import sys
 import os
-TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Get the directory where this test file is located
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TEST_DIR)
+
 from utils import get_spark
 import importlib.util
 
-# Load the calendar module
+# Load the calendar module from the same directory
 spec = importlib.util.spec_from_file_location("calendar_module", os.path.join(TEST_DIR, "0_calendar.py"))
 calendar_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(calendar_module)

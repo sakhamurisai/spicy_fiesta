@@ -9,9 +9,9 @@ import shutil
 import os
 import sys
 
-import os
-TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TEST_DIR)
+
 from utils import get_spark
 import importlib.util
 
@@ -25,7 +25,6 @@ states_mod = load_module("states", os.path.join(TEST_DIR, "01_store_states.py"))
 locations_mod = load_module("locations", os.path.join(TEST_DIR, "02_store_locations.py"))
 positions_mod = load_module("positions", os.path.join(TEST_DIR, "04_emp_positions.py"))
 employees_mod = load_module("employees", os.path.join(TEST_DIR, "05_emp_employees.py"))
-
 
 class TestEmployeesDataFrame:
     """Test suite for create_employees_dataframe function."""

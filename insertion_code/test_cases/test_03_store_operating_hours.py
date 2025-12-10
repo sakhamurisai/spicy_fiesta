@@ -16,8 +16,11 @@ import os
 import sys
 
 import os
-TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Get the directory where this test file is located
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TEST_DIR)
+
 from utils import get_spark
 
 # Load modules
