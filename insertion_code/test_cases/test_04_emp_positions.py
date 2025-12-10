@@ -9,7 +9,9 @@ import shutil
 import os
 import sys
 
-sys.path.insert(0, '/mnt/user-data/uploads')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark
 import importlib.util
 
@@ -19,7 +21,7 @@ def load_module(name, path):
     spec.loader.exec_module(module)
     return module
 
-positions_mod = load_module("positions", "/mnt/user-data/uploads/04_emp_positions.py")
+positions_mod = load_module("positions", os.path.join(TEST_DIR, "04_emp_positions.py"))
 
 
 class TestPositionsDataFrame:

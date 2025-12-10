@@ -18,7 +18,9 @@ import os
 
 # Import the module to test
 import sys
-sys.path.insert(0, '/home/claude/corrected_code')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark, write_parquet
 
 

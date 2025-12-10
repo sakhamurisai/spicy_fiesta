@@ -10,11 +10,9 @@ from pyspark.sql import SparkSession, DataFrame
 import pyspark.sql.functions as F
 from pyspark.sql.types import IntegerType
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
+# Hardcoded import path
+sys.path.insert(0, r'd:\Projects\spicy_fiesta\spicy_fiesta\insertion_code')
+from utils import get_spark, write_parquet
 
 
 # Constants

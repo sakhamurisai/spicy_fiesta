@@ -1,35 +1,26 @@
 """
-Store states dimension table generation module.
+Store States data generator.
 
-Creates the states dimension table with state codes, names, regions, and tax rates
-for all 50 US states plus DC.
+Generates state reference data for all US states with tax rates and regional information.
 """
-
-import sys
-from typing import List, Tuple
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet, validate_output_path
 import pyspark.sql.functions as F
+from pyspark.sql.window import Window
+from pyspark.sql.functions import row_number
+import logging
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
+logger = logging.getLogger(__name__)
 
-
-# Constants
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
-
-# Complete US states data with tax rates
-US_STATES_DATA: List[Tuple[str, str, str, float]] = [
+# Complete list of all 51 US states/territories
+ALL_STATES = [
     ("AL", "Alabama", "South", 0.04),
-    ("AK", "Alaska", "West", 0.00),  # no state sales tax
+    ("AK", "Alaska", "West", 0.00),
     ("AZ", "Arizona", "West", 0.056),
     ("AR", "Arkansas", "South", 0.065),
     ("CA", "California", "West", 0.0725),
     ("CO", "Colorado", "West", 0.029),
     ("CT", "Connecticut", "Northeast", 0.0635),
-    ("DE", "Delaware", "Northeast", 0.00),  # no state sales tax
+    ("DE", "Delaware", "Northeast", 0.00),
     ("FL", "Florida", "South", 0.06),
     ("GA", "Georgia", "South", 0.04),
     ("HI", "Hawaii", "West", 0.04),
@@ -47,10 +38,10 @@ US_STATES_DATA: List[Tuple[str, str, str, float]] = [
     ("MN", "Minnesota", "Midwest", 0.06875),
     ("MS", "Mississippi", "South", 0.07),
     ("MO", "Missouri", "Midwest", 0.04225),
-    ("MT", "Montana", "West", 0.00),  # no state sales tax
+    ("MT", "Montana", "West", 0.00),
     ("NE", "Nebraska", "Midwest", 0.055),
     ("NV", "Nevada", "West", 0.0685),
-    ("NH", "New Hampshire", "Northeast", 0.00),  # no state sales tax
+    ("NH", "New Hampshire", "Northeast", 0.00),
     ("NJ", "New Jersey", "Northeast", 0.06625),
     ("NM", "New Mexico", "West", 0.05125),
     ("NY", "New York", "Northeast", 0.04),
@@ -58,7 +49,7 @@ US_STATES_DATA: List[Tuple[str, str, str, float]] = [
     ("ND", "North Dakota", "Midwest", 0.05),
     ("OH", "Ohio", "Midwest", 0.0575),
     ("OK", "Oklahoma", "South", 0.045),
-    ("OR", "Oregon", "West", 0.00),  # no state sales tax
+    ("OR", "Oregon", "West", 0.00),
     ("PA", "Pennsylvania", "Northeast", 0.06),
     ("RI", "Rhode Island", "Northeast", 0.07),
     ("SC", "South Carolina", "South", 0.06),
@@ -76,84 +67,99 @@ US_STATES_DATA: List[Tuple[str, str, str, float]] = [
 ]
 
 
-def create_states_dataframe(spark: SparkSession) -> DataFrame:
+def create_states_dataframe(spark):
     """
-    Create states dimension DataFrame with all US states.
+    Create DataFrame with all US state data.
     
     Args:
-        spark: Active SparkSession
+        spark: SparkSession instance
         
     Returns:
-        DataFrame with states dimension data
-        
-    Raises:
-        ValueError: If spark session is None
+        DataFrame with state information
     """
-    if spark is None:
-        raise ValueError("SparkSession cannot be None")
+    logger.info(f"Creating states DataFrame with {len(ALL_STATES)} states")
     
-    # Create DataFrame from states data
-    states_df = spark.createDataFrame(
-        US_STATES_DATA,
+    # Create initial DataFrame
+    df = spark.createDataFrame(
+        ALL_STATES,
         ["StateCode", "StateName", "StateRegion", "TaxRate"]
     )
     
     # Add metadata columns
-    states_df = (
-        states_df
-        .withColumn("IsActive", F.lit(1))
-        .withColumn("CreatedDate", F.current_timestamp())
-        .withColumn("ModifiedDate", F.current_timestamp())
-    )
+    df = df.withColumn("IsActive", F.lit(1)) \
+           .withColumn("CreatedDate", F.current_timestamp()) \
+           .withColumn("ModifiedDate", F.current_timestamp())
     
-    # Add StateID using monotonically_increasing_id
-    states_df = states_df.withColumn(
-        "StateID",
-        (F.monotonically_increasing_id() + 1).cast("int")
-    )
+    # Add StateID using row_number for deterministic IDs
+    window_spec = Window.orderBy("StateCode")
+    df = df.withColumn("StateID", row_number().over(window_spec))
     
-    # Select columns in final order
-    column_order = [
-        "StateID", "StateCode", "StateName", "StateRegion", "TaxRate",
-        "IsActive", "CreatedDate", "ModifiedDate"
+    # Reorder columns to match schema
+    columns = [
+        "StateID", "StateCode", "StateName", "StateRegion",
+        "TaxRate", "IsActive", "CreatedDate", "ModifiedDate"
     ]
     
-    return states_df.select(*column_order)
+    return df.select(*columns)
 
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
+def validate_states_data(df):
     """
-    Generate states dimension table and write to Parquet.
+    Validate states DataFrame for data quality.
+    
+    Args:
+        df: States DataFrame to validate
+        
+    Raises:
+        ValueError: If validation fails
+    """
+    count = df.count()
+    if count != 51:
+        raise ValueError(f"Expected 51 states, got {count}")
+    
+    # Check for duplicates
+    distinct_codes = df.select("StateCode").distinct().count()
+    if distinct_codes != count:
+        raise ValueError("Duplicate state codes found")
+    
+    # Validate tax rates are non-negative
+    invalid_rates = df.filter(F.col("TaxRate") < 0).count()
+    if invalid_rates > 0:
+        raise ValueError(f"Found {invalid_rates} states with negative tax rates")
+    
+    logger.info("States data validation passed")
+
+
+def main(output_root: str = "./output_parquet"):
+    """
+    Main execution function for states data generation.
     
     Args:
         output_root: Root directory for output Parquet files
-        
-    Raises:
-        ValueError: If output_root is invalid
-        Exception: If data generation or writing fails
     """
-    if not output_root:
-        raise ValueError("output_root must be a non-empty string")
+    validate_output_path(output_root)
     
-    spark = None
+    spark = get_spark("states")
+    
     try:
-        spark = get_spark("states")
         states_df = create_states_dataframe(spark)
         
-        output_path = f"{output_root}/store.States"
-        write_parquet(states_df, output_path)
+        # Validate before writing
+        validate_states_data(states_df)
         
-        print(f"States dimension table successfully written to {output_path}")
-        print(f"Total states created: {states_df.count()}")
+        # Write to Parquet
+        write_parquet(states_df, f"{output_root}/store.States")
+        
+        logger.info("States data generation completed successfully")
         
     except Exception as e:
-        print(f"Error generating states dimension: {str(e)}")
+        logger.error(f"Failed to generate states data: {e}")
         raise
     finally:
-        if spark is not None:
-            spark.stop()
+        spark.stop()
 
 
 if __name__ == "__main__":
-    output_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT
+    import sys
+    output_path = sys.argv[1] if len(sys.argv) > 1 else "./output_parquet"
     main(output_path)

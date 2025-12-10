@@ -9,7 +9,9 @@ import shutil
 import os
 import sys
 
-sys.path.insert(0, '/mnt/user-data/uploads')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark
 import importlib.util
 
@@ -19,13 +21,13 @@ def load_module(name, path):
     spec.loader.exec_module(module)
     return module
 
-calendar_mod = load_module("calendar", "/mnt/user-data/uploads/0_calendar.py")
-states_mod = load_module("states", "/mnt/user-data/uploads/01_store_states.py")
-locations_mod = load_module("locations", "/mnt/user-data/uploads/02_store_locations.py")
-menu_mod = load_module("menu", "/mnt/user-data/uploads/07_menu_categories_items_recipes.py")
-inventory_mod = load_module("inventory", "/mnt/user-data/uploads/08_inv_items_storeinventory_po_shipments.py")
-loyalty_mod = load_module("loyalty", "/mnt/user-data/uploads/10_loyalty_members_points_rewards.py")
-orders_mod = load_module("orders", "/mnt/user-data/uploads/11_ord_generate_orders.py")
+calendar_mod = load_module("calendar", os.path.join(TEST_DIR, "0_calendar.py"))
+states_mod = load_module("states", os.path.join(TEST_DIR, "01_store_states.py"))
+locations_mod = load_module("locations", os.path.join(TEST_DIR, "02_store_locations.py"))
+menu_mod = load_module("menu", os.path.join(TEST_DIR, "07_menu_categories_items_recipes.py"))
+inventory_mod = load_module("inventory", os.path.join(TEST_DIR, "08_inv_items_storeinventory_po_shipments.py"))
+loyalty_mod = load_module("loyalty", os.path.join(TEST_DIR, "10_loyalty_members_points_rewards.py"))
+orders_mod = load_module("orders", os.path.join(TEST_DIR, "11_ord_generate_orders.py"))
 
 
 class TestOrdersModule:

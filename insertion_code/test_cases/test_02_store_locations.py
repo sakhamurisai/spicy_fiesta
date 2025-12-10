@@ -7,16 +7,18 @@ import shutil
 import os
 import sys
 
-sys.path.insert(0, '/home/claude/corrected_code')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark
 import importlib.util
 
 # Load modules
-spec_states = importlib.util.spec_from_file_location("states_module", "/home/claude/corrected_code/01_store_states.py")
+spec_states = importlib.util.spec_from_file_location("states_module", os.path.join(TEST_DIR, "01_store_states.py"))
 states_module = importlib.util.module_from_spec(spec_states)
 spec_states.loader.exec_module(states_module)
 
-spec_locations = importlib.util.spec_from_file_location("locations_module", "/home/claude/corrected_code/02_store_locations.py")
+spec_locations = importlib.util.spec_from_file_location("locations_module", os.path.join(TEST_DIR, "02_store_locations.py"))
 locations_module = importlib.util.module_from_spec(spec_locations)
 spec_locations.loader.exec_module(locations_module)
 

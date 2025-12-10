@@ -9,7 +9,9 @@ import shutil
 import os
 import sys
 
-sys.path.insert(0, '/mnt/user-data/uploads')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark
 import importlib.util
 
@@ -19,7 +21,7 @@ def load_module(name, path):
     spec.loader.exec_module(module)
     return module
 
-dbo_mod = load_module("dbo", "/mnt/user-data/uploads/13_dbo_audit_system_error.py")
+dbo_mod = load_module("dbo", os.path.join(TEST_DIR, "13_dbo_audit_system_error.py"))
 
 
 class TestDboModule:

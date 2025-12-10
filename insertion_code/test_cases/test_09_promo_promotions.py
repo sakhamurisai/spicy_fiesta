@@ -9,7 +9,9 @@ import shutil
 import os
 import sys
 
-sys.path.insert(0, '/mnt/user-data/uploads')
+import os
+TEST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, TEST_DIR)
 from utils import get_spark
 import importlib.util
 
@@ -19,10 +21,10 @@ def load_module(name, path):
     spec.loader.exec_module(module)
     return module
 
-states_mod = load_module("states", "/mnt/user-data/uploads/01_store_states.py")
-locations_mod = load_module("locations", "/mnt/user-data/uploads/02_store_locations.py")
-menu_mod = load_module("menu", "/mnt/user-data/uploads/07_menu_categories_items_recipes.py")
-promo_mod = load_module("promo", "/mnt/user-data/uploads/09_promo_promotions.py")
+states_mod = load_module("states", os.path.join(TEST_DIR, "01_store_states.py"))
+locations_mod = load_module("locations", os.path.join(TEST_DIR, "02_store_locations.py"))
+menu_mod = load_module("menu", os.path.join(TEST_DIR, "07_menu_categories_items_recipes.py"))
+promo_mod = load_module("promo", os.path.join(TEST_DIR, "09_promo_promotions.py"))
 
 
 class TestPromotionsModule:
