@@ -3,7 +3,8 @@ Store Locations data generator.
 
 Generates store location data with proper foreign key references to states.
 """
-from utils import get_spark, write_parquet, validate_output_path
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number
@@ -12,13 +13,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_locations_dataframe(spark, output_root: str, n_locations: int = 200):
+def create_locations_dataframe(spark, azure_store_path: str, n_locations: int = 200):
     """
     Create DataFrame with store location data.
     
     Args:
         spark: SparkSession instance
-        output_root: Path to read states data
+        azure_store_path: Azure path to read states data
         n_locations: Number of locations to generate
         
     Returns:
@@ -26,15 +27,14 @@ def create_locations_dataframe(spark, output_root: str, n_locations: int = 200):
     """
     logger.info(f"Creating {n_locations} store locations")
     
-    # Load states for valid StateID references
-    states_df = spark.read.parquet(f"{output_root}/store.States") \
+    states_df = spark.read.parquet(f"{azure_store_path}") \
+                     .filter(F.col("StateID").isNotNull()) \
                      .select("StateID", "StateCode")
     
     state_count = states_df.count()
     if state_count == 0:
         raise ValueError("No states found. Please run 01_store_states.py first")
     
-    # Generate locations using Spark operations (avoid collect for large datasets)
     locations = spark.range(1, n_locations + 1).toDF("LocationSeq")
     
     locations = locations \
@@ -45,7 +45,6 @@ def create_locations_dataframe(spark, output_root: str, n_locations: int = 200):
         .withColumn("StateID", ((F.col("LocationSeq") % state_count) + 1).cast("int")) \
         .withColumn("ZipCode", F.lpad((90000 + (F.col("LocationSeq") % 1000)).cast("string"), 5, "0"))
     
-    # Add required columns
     window_spec = Window.orderBy("LocationSeq")
     locations = locations \
         .withColumn("LocationID", row_number().over(window_spec)) \
@@ -62,7 +61,6 @@ def create_locations_dataframe(spark, output_root: str, n_locations: int = 200):
         .withColumn("CreatedBy", F.lit("system")) \
         .withColumn("ModifiedBy", F.lit("system"))
     
-    # Select final columns in order
     columns = [
         "LocationID", "LocationGUID", "StoreNumber", "StoreName",
         "AddressLine1", "City", "StateID", "ZipCode", "PhoneNumber",
@@ -89,12 +87,10 @@ def validate_locations_data(df, expected_count: int):
     if count != expected_count:
         raise ValueError(f"Expected {expected_count} locations, got {count}")
     
-    # Check for duplicate store numbers
     distinct_numbers = df.select("StoreNumber").distinct().count()
     if distinct_numbers != count:
         raise ValueError("Duplicate store numbers found")
     
-    # Validate StateID is positive
     invalid_states = df.filter(F.col("StateID") <= 0).count()
     if invalid_states > 0:
         raise ValueError(f"Found {invalid_states} locations with invalid StateID")
@@ -102,26 +98,23 @@ def validate_locations_data(df, expected_count: int):
     logger.info("Locations data validation passed")
 
 
-def main(output_root: str = "./output_parquet", n_locations: int = 200):
+def main(n_locations: int = 200):
     """
     Main execution function for locations data generation.
     
     Args:
-        output_root: Root directory for output Parquet files
         n_locations: Number of locations to generate
     """
-    validate_output_path(output_root)
-    
     spark = get_spark("locations")
+    configure_azure_blob_storage(spark)
     
     try:
-        locations_df = create_locations_dataframe(spark, output_root, n_locations)
+        azure_store_path = get_azure_blob_path("store")
+        locations_df = create_locations_dataframe(spark, azure_store_path, n_locations)
         
-        # Validate before writing
         validate_locations_data(locations_df, n_locations)
         
-        # Write to Parquet
-        write_parquet(locations_df, f"{output_root}/store.Locations")
+        write_parquet(locations_df, azure_store_path)
         
         logger.info(f"Locations data generation completed: {n_locations} locations created")
         
@@ -133,7 +126,4 @@ def main(output_root: str = "./output_parquet", n_locations: int = 200):
 
 
 if __name__ == "__main__":
-    import sys
-    output_path = sys.argv[1] if len(sys.argv) > 1 else "./output_parquet"
-    n_locs = int(sys.argv[2]) if len(sys.argv) > 2 else 200
-    main(output_path, n_locs)
+    main()

@@ -1,23 +1,23 @@
 """Employee schedules, time tracking, and payroll generation."""
-import sys
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
+import logging
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
+logger = logging.getLogger(__name__)
 
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
+def main():
     """Generate schedules, time tracking, and payroll tables."""
-    spark = None
+    spark = get_spark("schedules")
+    configure_azure_blob_storage(spark)
+    
     try:
-        spark = get_spark("schedules")
-        emp_df = spark.read.parquet(f"{output_root}/emp.Employees").select("EmployeeID", "PrimaryLocationID")
-        cal_df = spark.read.parquet(f"{output_root}/dim.Calendar").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
+        azure_emp_path = get_azure_blob_path("emp")
+        azure_dim_path = get_azure_blob_path("dim")
+        
+        emp_df = spark.read.parquet(azure_emp_path).select("EmployeeID", "PrimaryLocationID")
+        cal_df = spark.read.parquet(azure_dim_path).filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
         
         cal_list = [r.CalendarID for r in cal_df.collect()]
         rows = []
@@ -28,18 +28,16 @@ def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
         sched_df = spark.createDataFrame(rows, ["EmployeeID", "LocationID", "ShiftDateID", "StartTime",
                                                 "EndTime", "ShiftType", "BreakMinutes", "IsApproved", "ApprovedBy"])
         sched_df = sched_df.withColumn("ScheduleID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(sched_df, f"{output_root}/emp.Schedules")
+        write_parquet(sched_df, azure_emp_path)
         
-        # Time tracking
         tt_rows = [(s.ScheduleID, s.EmployeeID, s.LocationID, s.ShiftDateID,
                    "2022-01-01 09:05:00", "2022-01-01 17:02:00", None, None)
                   for s in sched_df.collect()]
         tt_df = spark.createDataFrame(tt_rows, ["ScheduleID", "EmployeeID", "LocationID", "ClockInDateID",
                                                 "ClockInTime", "ClockOutTime", "BreakStartTime", "BreakEndTime"])
         tt_df = tt_df.withColumn("TimeTrackingID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(tt_df, f"{output_root}/emp.TimeTracking")
+        write_parquet(tt_df, azure_emp_path)
         
-        # Payroll
         payroll_df = tt_df.groupBy("EmployeeID").agg(
             F.sum(F.expr("(unix_timestamp(ClockOutTime) - unix_timestamp(ClockInTime))/3600.0")).alias("HoursWorked")
         )
@@ -49,11 +47,16 @@ def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
             .withColumn("PayrollDateID", F.lit(None).cast("int"))
             .withColumn("CreatedDate", F.current_timestamp())
         )
-        write_parquet(payroll_df, f"{output_root}/emp.Payroll")
-        print("Schedules, time tracking, and payroll created")
+        write_parquet(payroll_df, azure_emp_path)
+        
+        logger.info("Schedules, time tracking, and payroll created")
+        
+    except Exception as e:
+        logger.error(f"Error generating schedules: {str(e)}")
+        raise
     finally:
-        if spark:
-            spark.stop()
+        spark.stop()
+
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT)
+    main()

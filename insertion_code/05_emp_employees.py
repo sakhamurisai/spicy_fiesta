@@ -1,21 +1,17 @@
 """Employee records generation module."""
-import sys
-from typing import List, Tuple
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
 from pyspark.sql.types import IntegerType
+from typing import List, Tuple
+import logging
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
+logger = logging.getLogger(__name__)
 
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
 DEFAULT_NUM_EMPLOYEES = 1000
 
-def create_employees_dataframe(spark: SparkSession, num_employees: int,
-                               positions_df: DataFrame, locations_df: DataFrame) -> DataFrame:
+
+def create_employees_dataframe(spark, num_employees: int, positions_df, locations_df):
     """Create employees DataFrame."""
     if spark is None or num_employees <= 0:
         raise ValueError("Invalid parameters")
@@ -54,22 +50,31 @@ def create_employees_dataframe(spark: SparkSession, num_employees: int,
                     "Email", "DateOfBirth", "HireDateID", "PositionID", "PrimaryLocationID",
                     "HourlyRate", "PasswordHash", "PasswordSalt", "IsActive", "CreatedDate")
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT, num_employees: int = DEFAULT_NUM_EMPLOYEES) -> None:
+
+def main(num_employees: int = DEFAULT_NUM_EMPLOYEES):
     """Generate employees table."""
-    spark = None
+    spark = get_spark("employees")
+    configure_azure_blob_storage(spark)
+    
     try:
-        spark = get_spark("employees")
-        positions_df = spark.read.parquet(f"{output_root}/emp.Positions").select("PositionID")
-        locations_df = spark.read.parquet(f"{output_root}/store.Locations").select("LocationID")
+        azure_emp_path = get_azure_blob_path("emp")
+        azure_store_path = get_azure_blob_path("store")
+        
+        positions_df = spark.read.parquet(azure_emp_path).select("PositionID")
+        locations_df = spark.read.parquet(azure_store_path).select("LocationID")
         
         employees_df = create_employees_dataframe(spark, num_employees, positions_df, locations_df)
-        write_parquet(employees_df, f"{output_root}/emp.Employees")
-        print(f"Employees created: {employees_df.count()}")
+        
+        write_parquet(employees_df, azure_emp_path)
+        
+        logger.info(f"Employees created: {employees_df.count()}")
+        
+    except Exception as e:
+        logger.error(f"Error generating employees: {str(e)}")
+        raise
     finally:
-        if spark:
-            spark.stop()
+        spark.stop()
+
 
 if __name__ == "__main__":
-    out = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT
-    n = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_NUM_EMPLOYEES
-    main(out, n)
+    main()

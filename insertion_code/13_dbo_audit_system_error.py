@@ -1,25 +1,44 @@
-# 13_dbo_audit_system_error.py
+"""System configuration, audit log, and error log generation module."""
 from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
+import logging
 
-def main(output_root="./output_parquet"):
+logger = logging.getLogger(__name__)
+
+
+def main():
+    """Generate system tables."""
     spark = get_spark("dbo_misc")
-    # SystemConfiguration sample
-    cfg = [("default.tax.rate","0.07","Default tax rate","Decimal","0","system")]
-    cfg_df = spark.createDataFrame(cfg, ["ConfigKey","ConfigValue","Description","DataType","IsEncrypted","ModifiedBy"]) \
-              .withColumn("ConfigID", F.monotonically_increasing_id()+1).withColumn("ModifiedDate", F.current_timestamp())
-    write_parquet(cfg_df.select("ConfigID","ConfigKey","ConfigValue","Description","DataType","IsEncrypted","ModifiedBy","ModifiedDate"),
-                  f"{output_root}/dbo.SystemConfiguration")
+    configure_azure_blob_storage(spark)
+    
+    try:
+        azure_path = get_azure_blob_path("dbo")
+        
+        # SystemConfiguration
+        cfg = [("default.tax.rate","0.07","Default tax rate","Decimal","0","system")]
+        cfg_df = spark.createDataFrame(cfg, ["ConfigKey","ConfigValue","Description","DataType","IsEncrypted","ModifiedBy"]) \
+                  .withColumn("ConfigID", F.monotonically_increasing_id()+1) \
+                  .withColumn("ModifiedDate", F.current_timestamp())
+        write_parquet(cfg_df.select("ConfigID","ConfigKey","ConfigValue","Description","DataType","IsEncrypted","ModifiedBy","ModifiedDate"),
+                      azure_path)
+        
+        # Empty AuditLog skeleton
+        audit_schema = spark.createDataFrame([], schema="AuditID long, TableName string, RecordID long, Action string, OldValues string, NewValues string, ChangedBy string, ChangedDate timestamp, IPAddress string, ApplicationName string")
+        write_parquet(audit_schema, azure_path)
+        
+        # Empty ErrorLog skeleton
+        error_schema = spark.createDataFrame([], schema="ErrorID long, ErrorNumber int, ErrorSeverity int, ErrorState int, ErrorProcedure string, ErrorLine int, ErrorMessage string, UserName string, HostName string, ApplicationName string, ErrorDate timestamp")
+        write_parquet(error_schema, azure_path)
+        
+        logger.info("System tables created successfully")
+        
+    except Exception as e:
+        logger.error(f"Error generating system tables: {str(e)}")
+        raise
+    finally:
+        spark.stop()
 
-    # Empty AuditLog/ErrorLog skeletons
-    audit_schema = spark.createDataFrame([], schema="AuditID long, TableName string, RecordID long, Action string, OldValues string, NewValues string, ChangedBy string, ChangedDate timestamp, IPAddress string, ApplicationName string")
-    write_parquet(audit_schema, f"{output_root}/dbo.AuditLog")
 
-    error_schema = spark.createDataFrame([], schema="ErrorID long, ErrorNumber int, ErrorSeverity int, ErrorState int, ErrorProcedure string, ErrorLine int, ErrorMessage string, UserName string, HostName string, ApplicationName string, ErrorDate timestamp")
-    write_parquet(error_schema, f"{output_root}/dbo.ErrorLog")
-    spark.stop()
-
-if __name__=="__main__":
-    import sys
-    out = sys.argv[1] if len(sys.argv)>1 else "./output_parquet"
-    main(out)
+if __name__ == "__main__":
+    main()

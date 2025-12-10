@@ -3,7 +3,8 @@ Store States data generator.
 
 Generates state reference data for all US states with tax rates and regional information.
 """
-from utils import get_spark, write_parquet, validate_output_path
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number
@@ -79,22 +80,18 @@ def create_states_dataframe(spark):
     """
     logger.info(f"Creating states DataFrame with {len(ALL_STATES)} states")
     
-    # Create initial DataFrame
     df = spark.createDataFrame(
         ALL_STATES,
         ["StateCode", "StateName", "StateRegion", "TaxRate"]
     )
     
-    # Add metadata columns
     df = df.withColumn("IsActive", F.lit(1)) \
            .withColumn("CreatedDate", F.current_timestamp()) \
            .withColumn("ModifiedDate", F.current_timestamp())
     
-    # Add StateID using row_number for deterministic IDs
     window_spec = Window.orderBy("StateCode")
     df = df.withColumn("StateID", row_number().over(window_spec))
     
-    # Reorder columns to match schema
     columns = [
         "StateID", "StateCode", "StateName", "StateRegion",
         "TaxRate", "IsActive", "CreatedDate", "ModifiedDate"
@@ -117,12 +114,10 @@ def validate_states_data(df):
     if count != 51:
         raise ValueError(f"Expected 51 states, got {count}")
     
-    # Check for duplicates
     distinct_codes = df.select("StateCode").distinct().count()
     if distinct_codes != count:
         raise ValueError("Duplicate state codes found")
     
-    # Validate tax rates are non-negative
     invalid_rates = df.filter(F.col("TaxRate") < 0).count()
     if invalid_rates > 0:
         raise ValueError(f"Found {invalid_rates} states with negative tax rates")
@@ -130,25 +125,19 @@ def validate_states_data(df):
     logger.info("States data validation passed")
 
 
-def main(output_root: str = "./output_parquet"):
+def main():
     """
     Main execution function for states data generation.
-    
-    Args:
-        output_root: Root directory for output Parquet files
     """
-    validate_output_path(output_root)
-    
     spark = get_spark("states")
+    configure_azure_blob_storage(spark)
     
     try:
         states_df = create_states_dataframe(spark)
-        
-        # Validate before writing
         validate_states_data(states_df)
         
-        # Write to Parquet
-        write_parquet(states_df, f"{output_root}/store.States")
+        azure_path = get_azure_blob_path("store")
+        write_parquet(states_df, azure_path)
         
         logger.info("States data generation completed successfully")
         
@@ -160,6 +149,4 @@ def main(output_root: str = "./output_parquet"):
 
 
 if __name__ == "__main__":
-    import sys
-    output_path = sys.argv[1] if len(sys.argv) > 1 else "./output_parquet"
-    main(output_path)
+    main()

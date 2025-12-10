@@ -3,20 +3,13 @@ Employee positions table generation module.
 
 Creates position/role records with salary ranges and requirements.
 """
-
-import sys
-from typing import List, Tuple
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
+from typing import List, Tuple
+import logging
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
-
-
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
+logger = logging.getLogger(__name__)
 
 POSITIONS_DATA: List[Tuple] = [
     ("POS-01", "Crew Member", 1, "Operations", 10.0, 15.0, 0),
@@ -26,7 +19,7 @@ POSITIONS_DATA: List[Tuple] = [
 ]
 
 
-def create_positions_dataframe(spark: SparkSession) -> DataFrame:
+def create_positions_dataframe(spark):
     """Create positions DataFrame."""
     if spark is None:
         raise ValueError("SparkSession cannot be None")
@@ -53,30 +46,25 @@ def create_positions_dataframe(spark: SparkSession) -> DataFrame:
     return positions_df.select(*column_order)
 
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
-    """Generate positions table and write to Parquet."""
-    if not output_root:
-        raise ValueError("output_root must be a non-empty string")
+def main():
+    """Generate positions table and write to Azure."""
+    spark = get_spark("positions")
+    configure_azure_blob_storage(spark)
     
-    spark = None
     try:
-        spark = get_spark("positions")
         positions_df = create_positions_dataframe(spark)
         
-        output_path = f"{output_root}/emp.Positions"
-        write_parquet(positions_df, output_path)
+        azure_path = get_azure_blob_path("emp")
+        write_parquet(positions_df, azure_path)
         
-        print(f"Positions table successfully written to {output_path}")
-        print(f"Total positions created: {positions_df.count()}")
+        logger.info(f"Positions table successfully written. Total positions: {positions_df.count()}")
         
     except Exception as e:
-        print(f"Error generating positions: {str(e)}")
+        logger.error(f"Error generating positions: {str(e)}")
         raise
     finally:
-        if spark is not None:
-            spark.stop()
+        spark.stop()
 
 
 if __name__ == "__main__":
-    output_path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT
-    main(output_path)
+    main()

@@ -1,17 +1,12 @@
 """Menu categories, items, and recipes generation module."""
-import sys
-import random
-from typing import Optional
-from pyspark.sql import SparkSession, DataFrame
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
+import random
+import logging
 
-try:
-    from utils import get_spark, write_parquet
-except ImportError:
-    sys.path.insert(0, '.')
-    from utils import get_spark, write_parquet
+logger = logging.getLogger(__name__)
 
-DEFAULT_OUTPUT_ROOT = "./output_parquet"
 NUM_ITEMS = 300
 
 CATEGORIES_DATA = [
@@ -31,12 +26,12 @@ INGREDIENTS_DATA = [
     ("ING-07", "Soda Syrup", "gal")
 ]
 
-def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tuple:
+
+def create_menu_dataframes(spark, seed=42):
     """Create all menu-related DataFrames."""
     if seed:
         random.seed(seed)
     
-    # Categories
     cat_df = spark.createDataFrame(CATEGORIES_DATA, ["CategoryCode", "CategoryName"])
     cat_df = (cat_df
         .withColumn("CategoryID", F.monotonically_increasing_id() + 1)
@@ -45,7 +40,6 @@ def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tup
         .select("CategoryID", "CategoryCode", "CategoryName", "IsActive", "CreatedDate")
     )
     
-    # Items
     items = [(f"ITM-{i:04d}", f"Menu Item {i:04d}", ((i-1) % 4) + 1,
              round(1.99 + (i % 10) * 0.75, 2)) for i in range(1, NUM_ITEMS + 1)]
     items_df = spark.createDataFrame(items, ["ItemCode", "ItemName", "CategoryID", "BasePrice"])
@@ -58,7 +52,6 @@ def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tup
                "IsActive", "LaunchDateID", "CreatedDate")
     )
     
-    # Ingredients
     ing_df = spark.createDataFrame(INGREDIENTS_DATA, ["IngredientCode", "IngredientName", "UnitOfMeasure"])
     ing_df = (ing_df
         .withColumn("IngredientID", F.monotonically_increasing_id() + 1)
@@ -66,7 +59,6 @@ def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tup
         .select("IngredientID", "IngredientCode", "IngredientName", "UnitOfMeasure", "CreatedDate")
     )
     
-    # Recipes
     item_ids = [r.ItemID for r in items_df.collect()]
     ing_ids = [r.IngredientID for r in ing_df.collect()]
     
@@ -86,22 +78,29 @@ def create_menu_dataframes(spark: SparkSession, seed: Optional[int] = 42) -> tup
     
     return cat_df, items_df, ing_df, rec_df
 
-def main(output_root: str = DEFAULT_OUTPUT_ROOT) -> None:
+
+def main():
     """Generate menu tables."""
-    spark = None
+    spark = get_spark("menu")
+    configure_azure_blob_storage(spark)
+    
     try:
-        spark = get_spark("menu")
         cat_df, items_df, ing_df, rec_df = create_menu_dataframes(spark)
         
-        write_parquet(cat_df, f"{output_root}/menu.Categories")
-        write_parquet(items_df, f"{output_root}/menu.Items")
-        write_parquet(ing_df, f"{output_root}/menu.Ingredients")
-        write_parquet(rec_df, f"{output_root}/menu.RecipeItems")
+        azure_path = get_azure_blob_path("menu")
+        write_parquet(cat_df, azure_path)
+        write_parquet(items_df, azure_path)
+        write_parquet(ing_df, azure_path)
+        write_parquet(rec_df, azure_path)
         
-        print("Menu tables created successfully")
+        logger.info("Menu tables created successfully")
+        
+    except Exception as e:
+        logger.error(f"Error generating menu: {str(e)}")
+        raise
     finally:
-        if spark:
-            spark.stop()
+        spark.stop()
+
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_OUTPUT_ROOT)
+    main()

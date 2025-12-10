@@ -4,7 +4,8 @@ Calendar dimension generator.
 Generates a comprehensive date dimension table with business and fiscal attributes
 for the date range 1980-01-01 to 2080-12-31.
 """
-from utils import get_spark, write_parquet, validate_output_path
+from utils import get_spark, write_parquet
+from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number
@@ -41,15 +42,13 @@ def create_calendar_dimension(
     cal = df.select(F.explode(F.col("dseq")).alias("CalendarDate"))
     
     # Add date attributes
-    # DayOfWeek: Use dayofweek() which returns 1=Sunday, 2=Monday...7=Saturday
-    # Convert to ISO standard: 1=Monday, 2=Tuesday...7=Sunday
     cal = cal.withColumn("Year", F.year("CalendarDate")) \
              .withColumn("Quarter", F.quarter("CalendarDate")) \
              .withColumn("Month", F.month("CalendarDate")) \
              .withColumn("MonthName", F.date_format("CalendarDate", "MMMM")) \
              .withColumn("Day", F.dayofmonth("CalendarDate")) \
              .withColumn("DayOfWeek",
-                        F.when(F.dayofweek("CalendarDate") == 1, 7)  # Sunday -> 7
+                        F.when(F.dayofweek("CalendarDate") == 1, 7)
                          .otherwise(F.dayofweek("CalendarDate") - 1)) \
              .withColumn("DayName", F.date_format("CalendarDate", "EEEE")) \
              .withColumn("WeekOfYear", F.weekofyear("CalendarDate")) \
@@ -92,16 +91,13 @@ def create_calendar_dimension(
     return cal.select(*columns)
 
 
-def main(output_root: str = "./output_parquet"):
+def main():
     """
     Main execution function for calendar dimension generation.
-    
-    Args:
-        output_root: Root directory for output Parquet files
+    Designed for Databricks environment.
     """
-    validate_output_path(output_root)
-    
     spark = get_spark("calendar")
+    configure_azure_blob_storage(spark)
     
     try:
         calendar_df = create_calendar_dimension(spark)
@@ -110,17 +106,9 @@ def main(output_root: str = "./output_parquet"):
         row_count = calendar_df.count()
         logger.info(f"Generated {row_count} calendar records")
 
-        # Write with year partitioning for better query performance
-        # On Windows, if native Hadoop library issues occur, write without partitioning
-        import sys
-        try:
-            write_parquet(calendar_df, f"{output_root}/dim.Calendar", partitionBy="Year")
-        except Exception as e:
-            if "UnsatisfiedLinkError" in str(e) and sys.platform == "win32":
-                logger.warning(f"Partitioned write failed due to Windows Hadoop native library issue, writing without partitioning")
-                write_parquet(calendar_df, f"{output_root}/dim.Calendar")
-            else:
-                raise
+        # Write to Azure Blob Storage
+        azure_path = get_azure_blob_path("dim")
+        write_parquet(calendar_df, azure_path, partitionBy="Year")
         
         logger.info("Calendar dimension generation completed successfully")
         
@@ -132,9 +120,7 @@ def main(output_root: str = "./output_parquet"):
 
 
 if __name__ == "__main__":
-    import sys
-    output_path = sys.argv[1] if len(sys.argv) > 1 else "./output_parquet"
-    main(output_path)
+    main()
 
 
 # Backwards-compatible alias for older tests
