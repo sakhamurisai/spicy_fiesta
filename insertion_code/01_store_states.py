@@ -1,8 +1,3 @@
-"""
-Store States data generator.
-
-Generates state reference data for all US states with tax rates and regional information.
-"""
 from utils import get_spark, write_parquet
 from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F

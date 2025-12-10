@@ -1,8 +1,3 @@
-"""
-Store operating hours table generation module.
-
-Creates operating hours records for each store location across all days of the week.
-"""
 from utils import get_spark, write_parquet
 from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F

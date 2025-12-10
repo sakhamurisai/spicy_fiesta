@@ -1,8 +1,3 @@
-"""
-Employee positions table generation module.
-
-Creates position/role records with salary ranges and requirements.
-"""
 from utils import get_spark, write_parquet
 from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F

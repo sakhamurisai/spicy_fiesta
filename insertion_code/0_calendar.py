@@ -1,9 +1,3 @@
-"""
-Calendar dimension generator.
-
-Generates a comprehensive date dimension table with business and fiscal attributes
-for the date range 1980-01-01 to 2080-12-31.
-"""
 from utils import get_spark, write_parquet
 from azure_config import configure_azure_blob_storage, get_azure_blob_path
 import pyspark.sql.functions as F
