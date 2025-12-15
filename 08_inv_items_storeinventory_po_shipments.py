@@ -61,7 +61,24 @@ def main():
                     qty = random.randint(50,200)
                     poi_rows.append((po_id, int(iid.InventoryItemID), qty, 0, 1.0, qty*1.0))
         
-        po_df = spark.createDataFrame(po_rows, ["PurchaseOrderID","PurchaseOrderNumber","LocationID","OrderDateID","ExpectedDeliveryDateID","ActualDeliveryDateID","OrderStatus","TotalAmount","OrderedBy","ApprovedBy","ReceivedBy","CreatedDate"]) \
+        from pyspark.sql.types import StructType, StructField, IntegerType, StringType, DoubleType, TimestampType
+        
+        po_schema = StructType([
+            StructField("PurchaseOrderID", IntegerType(), False),
+            StructField("PurchaseOrderNumber", StringType(), False),
+            StructField("LocationID", IntegerType(), False),
+            StructField("OrderDateID", IntegerType(), False),
+            StructField("ExpectedDeliveryDateID", IntegerType(), True),
+            StructField("ActualDeliveryDateID", IntegerType(), True),
+            StructField("OrderStatus", StringType(), False),
+            StructField("TotalAmount", DoubleType(), False),
+            StructField("OrderedBy", IntegerType(), False),
+            StructField("ApprovedBy", IntegerType(), True),
+            StructField("ReceivedBy", IntegerType(), True),
+            StructField("CreatedDate", TimestampType(), True)
+        ])
+        
+        po_df = spark.createDataFrame(po_rows, po_schema) \
                      .withColumn("CreatedDate", F.current_timestamp())
         poi_df = spark.createDataFrame(poi_rows, ["PurchaseOrderID","InventoryItemID","QuantityOrdered","QuantityReceived","UnitPrice","LineTotal"]) \
                      .withColumn("PurchaseOrderItemID", F.monotonically_increasing_id()+1).withColumn("CreatedDate", F.current_timestamp())
@@ -73,5 +90,7 @@ def main():
     except Exception as e:
         logger.error(f"Error generating inventory: {str(e)}")
         raise
+
+
 if __name__ == "__main__":
     main()

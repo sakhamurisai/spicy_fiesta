@@ -25,16 +25,37 @@ def main():
             for cal_id in cal_list:
                 rows.append((emp.EmployeeID, emp.PrimaryLocationID, cal_id, "09:00:00", "17:00:00", "Day", 30, 1, None))
         
-        sched_df = spark.createDataFrame(rows, ["EmployeeID", "LocationID", "ShiftDateID", "StartTime",
-                                                "EndTime", "ShiftType", "BreakMinutes", "IsApproved", "ApprovedBy"])
+        from pyspark.sql.types import StructType, StructField, IntegerType, StringType
+        
+        sched_schema = StructType([
+            StructField("EmployeeID", IntegerType(), False),
+            StructField("LocationID", IntegerType(), False),
+            StructField("ShiftDateID", IntegerType(), False),
+            StructField("StartTime", StringType(), False),
+            StructField("EndTime", StringType(), False),
+            StructField("ShiftType", StringType(), False),
+            StructField("BreakMinutes", IntegerType(), False),
+            StructField("IsApproved", IntegerType(), False),
+            StructField("ApprovedBy", IntegerType(), True)
+        ])
+        sched_df = spark.createDataFrame(rows, sched_schema)
         sched_df = sched_df.withColumn("ScheduleID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
         write_parquet(sched_df, azure_emp_path)
         
         tt_rows = [(s.ScheduleID, s.EmployeeID, s.LocationID, s.ShiftDateID,
                    "2022-01-01 09:05:00", "2022-01-01 17:02:00", None, None)
                   for s in sched_df.collect()]
-        tt_df = spark.createDataFrame(tt_rows, ["ScheduleID", "EmployeeID", "LocationID", "ClockInDateID",
-                                                "ClockInTime", "ClockOutTime", "BreakStartTime", "BreakEndTime"])
+        tt_schema = StructType([
+            StructField("ScheduleID", IntegerType(), False),
+            StructField("EmployeeID", IntegerType(), False),
+            StructField("LocationID", IntegerType(), False),
+            StructField("ClockInDateID", IntegerType(), False),
+            StructField("ClockInTime", StringType(), False),
+            StructField("ClockOutTime", StringType(), False),
+            StructField("BreakStartTime", StringType(), True),
+            StructField("BreakEndTime", StringType(), True)
+        ])
+        tt_df = spark.createDataFrame(tt_rows, tt_schema)
         tt_df = tt_df.withColumn("TimeTrackingID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
         write_parquet(tt_df, azure_emp_path)
         
@@ -54,5 +75,7 @@ def main():
     except Exception as e:
         logger.error(f"Error generating schedules: {str(e)}")
         raise
+
+
 if __name__ == "__main__":
     main()

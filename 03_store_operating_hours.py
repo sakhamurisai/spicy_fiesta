@@ -44,11 +44,20 @@ def create_operating_hours_dataframe(spark, locations_df):
                 None
             ))
     
-    hours_df = spark.createDataFrame(
-        hours_rows,
-        ["LocationID", "DayOfWeek", "OpenTime", "CloseTime", "IsHoliday",
-         "HolidayName", "EffectiveDateID", "ExpiryDateID"]
-    )
+    from pyspark.sql.types import StructType, StructField, IntegerType, StringType
+    
+    schema = StructType([
+        StructField("LocationID", IntegerType(), False),
+        StructField("DayOfWeek", IntegerType(), False),
+        StructField("OpenTime", StringType(), False),
+        StructField("CloseTime", StringType(), False),
+        StructField("IsHoliday", IntegerType(), False),
+        StructField("HolidayName", StringType(), True),
+        StructField("EffectiveDateID", IntegerType(), True),
+        StructField("ExpiryDateID", IntegerType(), True)
+    ])
+    
+    hours_df = spark.createDataFrame(hours_rows, schema)
     
     hours_df = (
         hours_df
@@ -84,5 +93,7 @@ def main():
     except Exception as e:
         logger.error(f"Error generating operating hours: {str(e)}")
         raise
+
+
 if __name__ == "__main__":
     main()
