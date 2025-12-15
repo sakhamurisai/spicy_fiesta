@@ -149,5 +149,6 @@ def main(total_orders=5000000):
         
     except Exception as e:
         logger.error(f"Error generating orders: {str(e)}")
-        raiseif __name__ == "__main__":
+        raise
+if __name__ == "__main__":
     main()

@@ -138,5 +138,6 @@ def main():
         
     except Exception as e:
         logger.error(f"Failed to generate states data: {e}")
-        raiseif __name__ == "__main__":
+        raise
+if __name__ == "__main__":
     main()

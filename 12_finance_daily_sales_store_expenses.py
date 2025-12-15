@@ -70,5 +70,6 @@ def main():
         
     except Exception as e:
         logger.error(f"Error generating finance: {str(e)}")
-        raiseif __name__ == "__main__":
+        raise
+if __name__ == "__main__":
     main()

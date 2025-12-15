@@ -115,5 +115,6 @@ def main(n_locations: int = 200):
         
     except Exception as e:
         logger.error(f"Failed to generate locations data: {e}")
-        raiseif __name__ == "__main__":
+        raise
+if __name__ == "__main__":
     main()

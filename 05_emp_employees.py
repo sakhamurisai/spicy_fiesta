@@ -71,5 +71,6 @@ def main(num_employees: int = DEFAULT_NUM_EMPLOYEES):
         
     except Exception as e:
         logger.error(f"Error generating employees: {str(e)}")
-        raiseif __name__ == "__main__":
+        raise
+if __name__ == "__main__":
     main()
