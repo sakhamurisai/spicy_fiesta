@@ -27,18 +27,18 @@ def main():
                .withColumn("IsActive", F.lit(1)) \
                .withColumn("CreatedDate", F.current_timestamp())
         write_parquet(df.select("PromotionID","PromotionCode","PromotionName","PromotionType","DiscountPercentage","DiscountAmount","StartDateID","EndDateID","ApplicableChannels","IsActive","CreatedDate"),
-                      azure_promo_path)
+                      f"{azure_promo_path}/promotions")
         
-        items = spark.read.parquet(azure_menu_path).select("ItemID").limit(50)
+        items = spark.read.parquet(f"{azure_menu_path}/items").select("ItemID").limit(50)
         promo_id = df.first().PromotionID
         pi = items.withColumn("PromotionID", F.lit(promo_id)).withColumn("PromotionItemID", F.monotonically_increasing_id()+1).withColumn("CreatedDate", F.current_timestamp()) \
                   .select("PromotionItemID","PromotionID","ItemID","CreatedDate")
-        write_parquet(pi, azure_promo_path)
+        write_parquet(pi, f"{azure_promo_path}/promotion_items")
         
-        locs = spark.read.parquet(azure_store_path).select("LocationID").limit(200)
+        locs = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID").limit(200)
         ps = locs.withColumn("PromotionStoreID", F.monotonically_increasing_id()+1).withColumn("PromotionID", F.lit(promo_id)).withColumn("IsActive", F.lit(1)).withColumn("CreatedDate", F.current_timestamp()) \
                  .select("PromotionStoreID","PromotionID","LocationID","IsActive","CreatedDate")
-        write_parquet(ps, azure_promo_path)
+        write_parquet(ps, f"{azure_promo_path}/promotion_stores")
         
         logger.info("Promotions tables created successfully")
         

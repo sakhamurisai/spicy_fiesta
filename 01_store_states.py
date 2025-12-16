@@ -132,7 +132,7 @@ def main():
         validate_states_data(states_df)
         
         azure_path = get_azure_blob_path("store")
-        write_parquet(states_df, azure_path)
+        write_parquet(states_df, f"{azure_store_path}/states")
         
         logger.info("States data generation completed successfully")
         

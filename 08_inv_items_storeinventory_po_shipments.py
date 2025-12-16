@@ -18,7 +18,7 @@ def main():
         azure_store_path = get_azure_blob_path("store")
         azure_inv_path = get_azure_blob_path("inv")
         
-        ing = spark.read.parquet(azure_menu_path).filter(F.col("IngredientID").isNotNull())
+        ing = spark.read.parquet(f"{azure_menu_path}/ingredients").filter(F.col("IngredientID").isNotNull())
         
         inv_rows = ing.withColumn("InventoryItemID", F.monotonically_increasing_id()+1) \
                      .withColumnRenamed("IngredientID","LinkedIngredientID") \
@@ -31,9 +31,9 @@ def main():
                      .withColumn("IsActive", F.lit(1)) \
                      .withColumn("CreatedDate", F.current_timestamp()) \
                      .select("InventoryItemID","ItemCode","ItemName","UnitOfMeasure","UnitCost","ReorderLevel","ReorderQuantity","RequiresRefrigeration","IsActive","CreatedDate")
-        write_parquet(inv_rows, azure_inv_path)
+        write_parquet(inv_rows, f"{azure_inv_path}/inventory_items")
         
-        locs = spark.read.parquet(azure_store_path).select("LocationID").limit(200)
+        locs = spark.read.parquet(f"{azure_store_path}/locations").limit(200)
         items = inv_rows.select("InventoryItemID").collect()
         rows = []
         for l in locs.collect():
@@ -47,7 +47,7 @@ def main():
                  .withColumn("LastCountDateID", F.lit(None).cast("int")) \
                  .withColumn("CreatedDate", F.current_timestamp()) \
                  .select("StoreInventoryID","LocationID","InventoryItemID","QuantityOnHand","MinimumQuantity","MaximumQuantity","LastRestockDateID","LastCountDateID","CreatedDate")
-        write_parquet(df, azure_inv_path)
+        write_parquet(df, f"{azure_inv_path}/store_inventory")
         
         po_rows = []
         poi_rows = []
@@ -82,8 +82,8 @@ def main():
                      .withColumn("CreatedDate", F.current_timestamp())
         poi_df = spark.createDataFrame(poi_rows, ["PurchaseOrderID","InventoryItemID","QuantityOrdered","QuantityReceived","UnitPrice","LineTotal"]) \
                      .withColumn("PurchaseOrderItemID", F.monotonically_increasing_id()+1).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(po_df, azure_inv_path)
-        write_parquet(poi_df, azure_inv_path)
+        write_parquet(po_df, f"{azure_inv_path}/purchase_orders")
+        write_parquet(poi_df, f"{azure_inv_path}/purchase_order_items")
         
         logger.info("Inventory tables created successfully")
         

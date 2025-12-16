@@ -15,10 +15,10 @@ def main():
     try:
         azure_emp_path = get_azure_blob_path("emp")
         azure_dim_path = get_azure_blob_path("dim")
-        
-        emp_df = spark.read.parquet(azure_emp_path).select("EmployeeID", "PrimaryLocationID")
-        cal_df = spark.read.parquet(azure_dim_path).filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
-        
+
+        emp_df = spark.read.parquet(f"{azure_emp_path}/employees").select("EmployeeID", "PrimaryLocationID")
+        cal_df = spark.read.parquet(f"{azure_dim_path}/calendar").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
+
         cal_list = [r.CalendarID for r in cal_df.collect()]
         rows = []
         for emp in emp_df.collect():
@@ -40,7 +40,7 @@ def main():
         ])
         sched_df = spark.createDataFrame(rows, sched_schema)
         sched_df = sched_df.withColumn("ScheduleID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(sched_df, azure_emp_path)
+        write_parquet(sched_df, f"{azure_emp_path}/schedules")
         
         tt_rows = [(s.ScheduleID, s.EmployeeID, s.LocationID, s.ShiftDateID,
                    "2022-01-01 09:05:00", "2022-01-01 17:02:00", None, None)
@@ -57,7 +57,7 @@ def main():
         ])
         tt_df = spark.createDataFrame(tt_rows, tt_schema)
         tt_df = tt_df.withColumn("TimeTrackingID", F.monotonically_increasing_id() + 1).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(tt_df, azure_emp_path)
+        write_parquet(tt_df, f"{azure_emp_path}/time_tracking")
         
         payroll_df = tt_df.groupBy("EmployeeID").agg(
             F.sum(F.expr("(unix_timestamp(ClockOutTime) - unix_timestamp(ClockInTime))/3600.0")).alias("HoursWorked")
@@ -68,7 +68,7 @@ def main():
             .withColumn("PayrollDateID", F.lit(None).cast("int"))
             .withColumn("CreatedDate", F.current_timestamp())
         )
-        write_parquet(payroll_df, azure_emp_path)
+        write_parquet(payroll_df, f"{azure_emp_path}/payroll")
         
         logger.info("Schedules, time tracking, and payroll created")
         

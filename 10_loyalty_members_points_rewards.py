@@ -13,7 +13,7 @@ def main(n_members=2000):
     configure_azure_blob_storage(spark)
     
     try:
-        azure_path = get_azure_blob_path("loyalty")
+        azure_loyalty_path = get_azure_blob_path("loyalty")
         
         rows = []
         for i in range(1, n_members+1):
@@ -25,13 +25,13 @@ def main(n_members=2000):
                   .withColumn("TotalPoints", F.lit(0)) \
                   .withColumn("CreatedDate", F.current_timestamp())
         write_parquet(df.select("MemberID","MemberNumber","FirstName","LastName","Email","PhoneNumber","EnrollmentDateID","MembershipTier","TotalPoints","CreatedDate"),
-                      azure_path)
+                      f"{azure_loyalty_path}/members")
         
         rewards = [("RW-01","Free Taco",100),("RW-02","$3 off",200)]
         rdf = spark.createDataFrame(rewards, ["RewardCode","RewardName","PointsCost"]) \
                    .withColumn("RewardID", F.monotonically_increasing_id()+1) \
                    .withColumn("IsActive", F.lit(1)).withColumn("StartDateID", F.lit(20000)).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(rdf.select("RewardID","RewardCode","RewardName","PointsCost","IsActive","StartDateID","CreatedDate"), azure_path)
+        write_parquet(rdf.select("RewardID","RewardCode","RewardName","PointsCost","IsActive","StartDateID","CreatedDate"), f"{azure_loyalty_path}/rewards")
         
         logger.info("Loyalty tables created successfully")
         

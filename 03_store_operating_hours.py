@@ -82,12 +82,9 @@ def main():
     
     try:
         azure_store_path = get_azure_blob_path("store")
-        locations_df = spark.read.parquet(azure_store_path).select("LocationID")
-        
+        locations_df = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID")
         hours_df = create_operating_hours_dataframe(spark, locations_df)
-        
-        write_parquet(hours_df, azure_store_path)
-        
+        write_parquet(hours_df, f"{azure_store_path}/operating_hours")
         logger.info(f"Operating hours table successfully written. Total records: {hours_df.count()}")
         
     except Exception as e:

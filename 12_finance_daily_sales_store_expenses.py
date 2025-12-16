@@ -20,8 +20,9 @@ def main():
         azure_finance_path = get_azure_blob_path("finance")
         
         # Read from Azure
-        orders = spark.read.parquet(azure_ord_path).select("OrderID","LocationID","OrderDateID","TotalAmount")
-        cal = spark.read.parquet(azure_dim_path).select("CalendarID","CalendarDate","Year")
+        orders = spark.read.parquet(f"{azure_ord_path}/orders").select("OrderID","LocationID","OrderDateID","TotalAmount")
+        cal = spark.read.parquet(f"{azure_dim_path}/calendar").select("CalendarID","CalendarDate","Year")
+        locs = spark.read.parquet(f"{azure_store_path}/locations")
         
         # Join and aggregate
         o_with_date = orders.join(cal.withColumnRenamed("CalendarID","C_CalID"), orders.OrderDateID == F.col("C_CalID")).drop("C_CalID")
@@ -52,7 +53,7 @@ def main():
         .withColumn("CreatedDate", F.current_timestamp())
         
         sales = sales.withColumn("Year", F.year("CalendarDate"))
-        write_parquet(sales, azure_finance_path, partitionBy="Year")
+        write_parquet(sales, f"{azure_finance_path}/daily_sales", partitionBy="Year")
         
         # Generate store expenses
         locs = spark.read.parquet(azure_store_path).select("LocationID").limit(200)
@@ -64,7 +65,7 @@ def main():
                 .withColumn("ExpenseID", F.monotonically_increasing_id()+1) \
                 .withColumn("CreatedDate", F.current_timestamp())
         write_parquet(exp_df.select("ExpenseID","LocationID","ExpenseDateID","ExpenseCategory","ExpenseDescription","Amount","VendorName","InvoiceNumber","PaymentMethod","ApprovedBy","RecordedBy","CreatedDate"),
-                      azure_finance_path)
+                      f"{azure_finance_path}/store_expenses")
         
         logger.info("Finance tables created successfully")
         

@@ -23,9 +23,9 @@ def main(total_orders=5000000):
         azure_finance_path = get_azure_blob_path("finance")
         
         # Load dimensions from Azure
-        cal = spark.read.parquet(azure_dim_path).select("CalendarID","CalendarDate","Year")
-        items = spark.read.parquet(azure_menu_path).select("ItemID","ItemName","BasePrice")
-        locs = spark.read.parquet(azure_store_path).select("LocationID")
+        cal = spark.read.parquet(f"{azure_dim_path}/calendar").select("CalendarID","CalendarDate","Year")
+        menu_df = spark.read.parquet(f"{azure_menu_path}/items").select("ItemID","ItemName","BasePrice")
+        locs = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID")
         
         # Create OrderChannels if not exists
         try:
@@ -33,7 +33,7 @@ def main(total_orders=5000000):
         except:
             ch = spark.createDataFrame([("CH-01","InStore"),("CH-02","DriveThru"),("CH-03","Mobile"),("CH-04","Web")], ["ChannelCode","ChannelName"]) \
                       .withColumn("ChannelID", F.monotonically_increasing_id()+1)
-            write_parquet(ch.select("ChannelID","ChannelCode","ChannelName"), azure_ord_path)
+            write_parquet(ch.select("ChannelID","ChannelCode","ChannelName"), f"{azure_ord_path}/channels")
             channels = ch.select("ChannelID")
         
         n_locations = locs.count()
@@ -72,7 +72,7 @@ def main(total_orders=5000000):
         cal_small = cal.withColumnRenamed("CalendarID","C_CalendarID").withColumnRenamed("CalendarDate","OrderDate")
         orders = orders.join(cal_small, orders.OrderDateID == F.col("C_CalendarID")).drop("C_CalendarID")
         orders = orders.withColumn("Year", F.year("OrderDate"))
-        write_parquet(orders, azure_ord_path, partitionBy="Year")
+        write_parquet(orders, f"{azure_ord_path}/orders", partitionBy="Year")
         
         # Generate order items
         items_small = items.cache()
@@ -90,7 +90,7 @@ def main(total_orders=5000000):
                       .select("OrderItemID","OrderID","ItemID","I_ItemID","Quantity","UnitPrice","LineTotal") \
                       .withColumnRenamed("I_ItemID","ItemID")
         order_items = order_items.select("OrderItemID","OrderID","ItemID","Quantity","UnitPrice","LineTotal").withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(order_items, azure_ord_path)
+        write_parquet(order_items, f"{azure_ord_path}/order_items")
         
         # Generate payments
         payments = orders.select("OrderID","OrderDateID","TotalAmount","PaymentMethod","PaymentStatus") \
@@ -102,19 +102,19 @@ def main(total_orders=5000000):
                  .withColumn("ProcessedBy", F.lit(None).cast("int")) \
                  .withColumn("CreatedDate", F.current_timestamp()) \
                  .select("PaymentTransactionID","OrderID","PaymentDateID","PaymentTime","PaymentMethod","TotalAmount","TransactionType","TransactionStatus","ProcessedBy","CreatedDate")
-        write_parquet(payments, azure_ord_path)
+        write_parquet(payments, f"{azure_ord_path}/payments")
         
         # Generate receipts
         receipts = orders.select("OrderID","OrderDateID").withColumn("ReceiptID", F.monotonically_increasing_id()+1) \
                   .withColumn("ReceiptDateID", F.col("OrderDateID")).withColumn("PrintedTimestamp", F.current_timestamp()) \
                   .withColumn("IsReprint", F.lit(0)).withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(receipts, azure_ord_path)
+        write_parquet(receipts, f"{azure_ord_path}/receipts")
         
         # Generate feedback
         feedback = orders.sample(0.01).select("OrderID","MemberID").withColumn("FeedbackID", F.monotonically_increasing_id()+1) \
                    .withColumn("OverallRating", (F.floor(F.rand()*5)+1).cast("int")) \
                    .withColumn("CreatedDate", F.current_timestamp())
-        write_parquet(feedback.select("FeedbackID","OrderID","MemberID","OverallRating","CreatedDate"), azure_ord_path)
+        write_parquet(feedback.select("FeedbackID","OrderID","MemberID","OverallRating","CreatedDate"), f"{azure_ord_path}/feedback")
         
         # Generate inventory transactions
         rec = spark.read.parquet(azure_menu_path).select("ItemID","IngredientID","Quantity")
@@ -133,7 +133,7 @@ def main(total_orders=5000000):
                         .withColumn("ProcessedBy", F.lit(None).cast("int")) \
                         .select("TransactionID","StoreInventoryID","TransactionType","ConsumeQty","QuantityBefore","QuantityAfter","OrderIDRef","ReasonCode","TransactionDateID","ProcessedBy")
         inv_txn = inv_txn.withColumnRenamed("ConsumeQty","Quantity")
-        write_parquet(inv_txn, azure_inv_path)
+        write_parquet(inv_txn, f"{azure_inv_path}/inventory_transactions")
         
         # Generate finance ledger
         ledger = orders.select("OrderID","OrderDateID","LocationID","SubtotalAmount","TaxAmount","TotalAmount") \
@@ -143,7 +143,7 @@ def main(total_orders=5000000):
                  .withColumn("GLAccount", F.lit("4000")) \
                  .withColumn("CreatedDate", F.current_timestamp()) \
                  .select("LedgerID","OrderDateID","LocationID","OrderID","EntryType","Amount","GLAccount","CreatedDate")
-        write_parquet(ledger, azure_finance_path)
+        write_parquet(ledger, f"{azure_finance_path}/ledger")
         
         logger.info(f"Orders generation completed: {total_orders} orders created")
         

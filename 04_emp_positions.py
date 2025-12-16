@@ -45,12 +45,11 @@ def main():
     """Generate positions table and write to Azure."""
     spark = get_spark("positions")
     configure_azure_blob_storage(spark)
-    
+
     try:
         positions_df = create_positions_dataframe(spark)
-        
-        azure_path = get_azure_blob_path("emp")
-        write_parquet(positions_df, azure_path)
+        azure_emp_path = get_azure_blob_path("emp")
+        write_parquet(positions_df, f"{azure_emp_path}/positions")
         
         logger.info(f"Positions table successfully written. Total positions: {positions_df.count()}")
         

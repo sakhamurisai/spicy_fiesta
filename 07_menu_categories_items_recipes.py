@@ -87,11 +87,11 @@ def main():
     try:
         cat_df, items_df, ing_df, rec_df = create_menu_dataframes(spark)
         
-        azure_path = get_azure_blob_path("menu")
-        write_parquet(cat_df, azure_path)
-        write_parquet(items_df, azure_path)
-        write_parquet(ing_df, azure_path)
-        write_parquet(rec_df, azure_path)
+        azure_menu_path = get_azure_blob_path("menu")
+        write_parquet(cat_df, f"{azure_menu_path}/categories")
+        write_parquet(items_df, f"{azure_menu_path}/items")
+        write_parquet(ing_df, f"{azure_menu_path}/ingredients")
+        write_parquet(rec_df, f"{azure_menu_path}/recipes")
         
         logger.info("Menu tables created successfully")
         

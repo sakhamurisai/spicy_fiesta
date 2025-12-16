@@ -22,7 +22,7 @@ def create_locations_dataframe(spark, azure_store_path: str, n_locations: int = 
     """
     logger.info(f"Creating {n_locations} store locations")
     
-    states_df = spark.read.parquet(f"{azure_store_path}") \
+    states_df = spark.read.parquet(azure_states_path) \
                      .filter(F.col("StateID").isNotNull()) \
                      .select("StateID", "StateCode")
     
@@ -105,6 +105,7 @@ def main(n_locations: int = 200):
     
     try:
         azure_store_path = get_azure_blob_path("store")
+        azure_states_path = f"{azure_store_path}/states"
         locations_df = create_locations_dataframe(spark, azure_store_path, n_locations)
         
         validate_locations_data(locations_df, n_locations)

@@ -59,14 +59,11 @@ def main(num_employees: int = DEFAULT_NUM_EMPLOYEES):
     try:
         azure_emp_path = get_azure_blob_path("emp")
         azure_store_path = get_azure_blob_path("store")
-        
-        positions_df = spark.read.parquet(azure_emp_path).select("PositionID")
-        locations_df = spark.read.parquet(azure_store_path).select("LocationID")
-        
+
+        positions_df = spark.read.parquet(f"{azure_emp_path}/positions").select("PositionID")
+        locations_df = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID")
         employees_df = create_employees_dataframe(spark, num_employees, positions_df, locations_df)
-        
-        write_parquet(employees_df, azure_emp_path)
-        
+        write_parquet(employees_df, f"{azure_emp_path}/employees")
         logger.info(f"Employees created: {employees_df.count()}")
         
     except Exception as e:
