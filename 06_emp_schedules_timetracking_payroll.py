@@ -17,7 +17,7 @@ def main():
         azure_dim_path = get_azure_blob_path("dim")
 
         emp_df = spark.read.parquet(f"{azure_emp_path}/employees").select("EmployeeID", "PrimaryLocationID")
-        cal_df = spark.read.parquet(f"{azure_dim_path}/calendar").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
+        cal_df = spark.read.parquet(f"{azure_dim_path}t").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
 
         cal_list = [r.CalendarID for r in cal_df.collect()]
         rows = []

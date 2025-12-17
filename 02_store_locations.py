@@ -106,11 +106,11 @@ def main(n_locations: int = 200):
     try:
         azure_store_path = get_azure_blob_path("store")
         azure_states_path = f"{azure_store_path}/states"
-        locations_df = create_locations_dataframe(spark, azure_store_path, n_locations)
+        locations_df = create_locations_dataframe(spark, f"{azure_states_path}s", n_locations)
         
         validate_locations_data(locations_df, n_locations)
         
-        write_parquet(locations_df, azure_store_path)
+        write_parquet(locations_df, f"{azure_store_path}/locations")
         
         logger.info(f"Locations data generation completed: {n_locations} locations created")
         
