@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_locations_dataframe(spark, azure_store_path: str, n_locations: int = 200):
+def create_locations_dataframe(spark, azure_states_path: str, n_locations: int = 200):
     """
     Create DataFrame with store location data.
     
@@ -106,7 +106,7 @@ def main(n_locations: int = 200):
     try:
         azure_store_path = get_azure_blob_path("store")
         azure_states_path = f"{azure_store_path}/states"
-        locations_df = create_locations_dataframe(spark, f"{azure_states_path}s", n_locations)
+        locations_df = create_locations_dataframe(spark, f"{azure_states_path}", n_locations)
         
         validate_locations_data(locations_df, n_locations)
         

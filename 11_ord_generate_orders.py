@@ -23,19 +23,23 @@ def main(total_orders=5000000):
         azure_finance_path = get_azure_blob_path("finance")
         
         # Load dimensions from Azure
+        # FIXED BUG #2: Added /calendar subfolder
         cal = spark.read.parquet(f"{azure_dim_path}/calendar").select("CalendarID","CalendarDate","Year")
-        menu_df = spark.read.parquet(f"{azure_menu_path}/items").select("ItemID","ItemName","BasePrice")
+        # FIXED BUG #1: Renamed menu_df to items for consistency
+        items = spark.read.parquet(f"{azure_menu_path}/items").select("ItemID","ItemName","BasePrice")
         locs = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID")
         
         # Create OrderChannels if not exists
         try:
-            channels = spark.read.parquet(azure_ord_path).filter(F.col("ChannelID").isNotNull()).select("ChannelID")
+            # FIXED BUG #3: Added /channels subfolder
+            channels = spark.read.parquet(f"{azure_ord_path}/channels").select("ChannelID")
         except:
             ch = spark.createDataFrame([("CH-01","InStore"),("CH-02","DriveThru"),("CH-03","Mobile"),("CH-04","Web")], ["ChannelCode","ChannelName"]) \
                       .withColumn("ChannelID", F.monotonically_increasing_id()+1)
             write_parquet(ch.select("ChannelID","ChannelCode","ChannelName"), f"{azure_ord_path}/channels")
             channels = ch.select("ChannelID")
         
+        # FIXED: items and locs variables now exist
         n_locations = locs.count()
         n_items = items.count()
         max_cal_id = cal.agg({"CalendarID":"max"}).collect()[0][0]
@@ -75,6 +79,7 @@ def main(total_orders=5000000):
         write_parquet(orders, f"{azure_ord_path}/orders", partitionBy="Year")
         
         # Generate order items
+        # FIXED: items variable now exists
         items_small = items.cache()
         orders_for_items = orders.select("OrderID","OrderDateID","LocationID")
         orders_for_items = orders_for_items.withColumn("item_count", ((F.col("OrderID") % 4) + 1))
@@ -117,7 +122,8 @@ def main(total_orders=5000000):
         write_parquet(feedback.select("FeedbackID","OrderID","MemberID","OverallRating","CreatedDate"), f"{azure_ord_path}/feedback")
         
         # Generate inventory transactions
-        rec = spark.read.parquet(azure_menu_path).select("ItemID","IngredientID","Quantity")
+        # FIXED BUG #4: Added /recipes subfolder
+        rec = spark.read.parquet(f"{azure_menu_path}/recipes").select("ItemID","IngredientID","Quantity")
         oi = order_items.select("OrderItemID","OrderID","ItemID","Quantity").cache()
         oi_rec = oi.join(rec, "ItemID", how="left")
         oi_rec = oi_rec.withColumn("InventoryItemID", F.col("IngredientID")) \
@@ -150,5 +156,7 @@ def main(total_orders=5000000):
     except Exception as e:
         logger.error(f"Error generating orders: {str(e)}")
         raise
+
+
 if __name__ == "__main__":
     main()

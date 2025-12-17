@@ -1,4 +1,5 @@
 """Employee schedules, time tracking, and payroll generation."""
+from pyspark.sql.types import StructType, StructField, IntegerType, LongType, StringType
 from utils import get_spark, write_parquet
 from azure_config import *
 import pyspark.sql.functions as F
@@ -17,15 +18,13 @@ def main():
         azure_dim_path = get_azure_blob_path("dim")
 
         emp_df = spark.read.parquet(f"{azure_emp_path}/employees").select("EmployeeID", "PrimaryLocationID")
-        cal_df = spark.read.parquet(f"{azure_dim_path}t").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
+        cal_df = spark.read.parquet(f"{azure_dim_path}").filter(F.col("Year") >= 2020).select("CalendarID").limit(30)
 
         cal_list = [r.CalendarID for r in cal_df.collect()]
         rows = []
         for emp in emp_df.collect():
             for cal_id in cal_list:
                 rows.append((emp.EmployeeID, emp.PrimaryLocationID, cal_id, "09:00:00", "17:00:00", "Day", 30, 1, None))
-        
-        from pyspark.sql.types import StructType, StructField, IntegerType, StringType
         
         sched_schema = StructType([
             StructField("EmployeeID", IntegerType(), False),
@@ -46,7 +45,7 @@ def main():
                    "2022-01-01 09:05:00", "2022-01-01 17:02:00", None, None)
                   for s in sched_df.collect()]
         tt_schema = StructType([
-            StructField("ScheduleID", IntegerType(), False),
+            StructField("ScheduleID", LongType(), False),  # FIXED: Changed from IntegerType to LongType
             StructField("EmployeeID", IntegerType(), False),
             StructField("LocationID", IntegerType(), False),
             StructField("ClockInDateID", IntegerType(), False),
