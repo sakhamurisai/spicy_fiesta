@@ -2,6 +2,10 @@
 from utils import get_spark, write_parquet
 from azure_config import *
 import pyspark.sql.functions as F
+from pyspark.sql.types import (
+    StructType, StructField,
+    IntegerType, StringType, DoubleType
+)
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,7 +25,7 @@ def main():
         
         # Read from Azure
         orders = spark.read.parquet(f"{azure_ord_path}/orders").select("OrderID","LocationID","OrderDateID","TotalAmount")
-        cal = spark.read.parquet(f"{azure_dim_path}/calendar").select("CalendarID","CalendarDate","Year")
+        cal = spark.read.parquet(f"{azure_dim_path}").select("CalendarID","CalendarDate","Year")
         locs = spark.read.parquet(f"{azure_store_path}/locations")
         
         # Join and aggregate
@@ -56,12 +60,23 @@ def main():
         write_parquet(sales, f"{azure_finance_path}/daily_sales", partitionBy="Year")
         
         # Generate store expenses
-        locs = spark.read.parquet(azure_store_path).select("LocationID").limit(200)
+        locs = locs.select("LocationID").limit(200)
         exp = []
         for l in locs.collect():
             exp.append((int(l.LocationID), 20050, "Rent", "Monthly rent", 5000.0, "Landlord Inc", "INV-1001", "Bank Transfer", None, int(1)))
-        
-        exp_df = spark.createDataFrame(exp, ["LocationID","ExpenseDateID","ExpenseCategory","ExpenseDescription","Amount","VendorName","InvoiceNumber","PaymentMethod","ApprovedBy","RecordedBy"]) \
+            schema = StructType([
+            StructField("LocationID", IntegerType(), False),
+            StructField("ExpenseDateID", IntegerType(), False),
+            StructField("ExpenseCategory", StringType(), False),
+            StructField("ExpenseDescription", StringType(), False),
+            StructField("Amount", DoubleType(), False),
+            StructField("VendorName", StringType(), False),
+            StructField("InvoiceNumber", StringType(), False),
+            StructField("PaymentMethod", StringType(), False),
+            StructField("ApprovedBy", IntegerType(), True),
+            StructField("RecordedBy", IntegerType(), False)
+        ])
+        exp_df = spark.createDataFrame(exp,schema=schema) \
                 .withColumn("ExpenseID", F.monotonically_increasing_id()+1) \
                 .withColumn("CreatedDate", F.current_timestamp())
         write_parquet(exp_df.select("ExpenseID","LocationID","ExpenseDateID","ExpenseCategory","ExpenseDescription","Amount","VendorName","InvoiceNumber","PaymentMethod","ApprovedBy","RecordedBy","CreatedDate"),

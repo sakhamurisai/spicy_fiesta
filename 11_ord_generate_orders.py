@@ -23,15 +23,13 @@ def main(total_orders=5000000):
         azure_finance_path = get_azure_blob_path("finance")
         
         # Load dimensions from Azure
-        # FIXED BUG #2: Added /calendar subfolder
-        cal = spark.read.parquet(f"{azure_dim_path}/calendar").select("CalendarID","CalendarDate","Year")
-        # FIXED BUG #1: Renamed menu_df to items for consistency
+        # Calendar is written directly to dim/ (partitioned by Year), not dim/calendar/
+        cal = spark.read.parquet(azure_dim_path).select("CalendarID","CalendarDate","Year")
         items = spark.read.parquet(f"{azure_menu_path}/items").select("ItemID","ItemName","BasePrice")
         locs = spark.read.parquet(f"{azure_store_path}/locations").select("LocationID")
         
         # Create OrderChannels if not exists
         try:
-            # FIXED BUG #3: Added /channels subfolder
             channels = spark.read.parquet(f"{azure_ord_path}/channels").select("ChannelID")
         except:
             ch = spark.createDataFrame([("CH-01","InStore"),("CH-02","DriveThru"),("CH-03","Mobile"),("CH-04","Web")], ["ChannelCode","ChannelName"]) \
@@ -39,7 +37,6 @@ def main(total_orders=5000000):
             write_parquet(ch.select("ChannelID","ChannelCode","ChannelName"), f"{azure_ord_path}/channels")
             channels = ch.select("ChannelID")
         
-        # FIXED: items and locs variables now exist
         n_locations = locs.count()
         n_items = items.count()
         max_cal_id = cal.agg({"CalendarID":"max"}).collect()[0][0]
@@ -79,7 +76,6 @@ def main(total_orders=5000000):
         write_parquet(orders, f"{azure_ord_path}/orders", partitionBy="Year")
         
         # Generate order items
-        # FIXED: items variable now exists
         items_small = items.cache()
         orders_for_items = orders.select("OrderID","OrderDateID","LocationID")
         orders_for_items = orders_for_items.withColumn("item_count", ((F.col("OrderID") % 4) + 1))
@@ -87,14 +83,14 @@ def main(total_orders=5000000):
                         .withColumn("seq", F.explode("seq"))
         orders_expl = orders_expl.withColumn("ItemID", (((F.col("OrderID") * 131071) + F.col("seq")) % n_items + 1).cast("int"))
         
+        # Fixed: Removed I_ItemID ambiguity
         order_items = orders_expl.join(items_small.withColumnRenamed("ItemID","I_ItemID"), orders_expl.ItemID == F.col("I_ItemID"), how="left") \
                       .withColumn("OrderItemID", F.monotonically_increasing_id()+1) \
                       .withColumn("Quantity", F.lit(1)) \
                       .withColumn("UnitPrice", F.col("BasePrice")) \
                       .withColumn("LineTotal", F.round(F.col("Quantity") * F.col("UnitPrice"),2)) \
-                      .select("OrderItemID","OrderID","ItemID","I_ItemID","Quantity","UnitPrice","LineTotal") \
-                      .withColumnRenamed("I_ItemID","ItemID")
-        order_items = order_items.select("OrderItemID","OrderID","ItemID","Quantity","UnitPrice","LineTotal").withColumn("CreatedDate", F.current_timestamp())
+                      .select("OrderItemID","OrderID","ItemID","Quantity","UnitPrice","LineTotal") \
+                      .withColumn("CreatedDate", F.current_timestamp())
         write_parquet(order_items, f"{azure_ord_path}/order_items")
         
         # Generate payments
@@ -122,12 +118,13 @@ def main(total_orders=5000000):
         write_parquet(feedback.select("FeedbackID","OrderID","MemberID","OverallRating","CreatedDate"), f"{azure_ord_path}/feedback")
         
         # Generate inventory transactions
-        # FIXED BUG #4: Added /recipes subfolder
-        rec = spark.read.parquet(f"{azure_menu_path}/recipes").select("ItemID","IngredientID","Quantity")
+        # Fixed: Renamed Quantity to RecipeQuantity to avoid ambiguity
+        rec = spark.read.parquet(f"{azure_menu_path}/recipes") \
+                   .select("ItemID","IngredientID", F.col("Quantity").alias("RecipeQuantity"))
         oi = order_items.select("OrderItemID","OrderID","ItemID","Quantity").cache()
         oi_rec = oi.join(rec, "ItemID", how="left")
         oi_rec = oi_rec.withColumn("InventoryItemID", F.col("IngredientID")) \
-                      .withColumn("ConsumeQty", F.col("Quantity") * F.col("Quantity"))
+                      .withColumn("ConsumeQty", F.col("Quantity") * F.col("RecipeQuantity"))
         inv_txn = oi_rec.withColumn("TransactionID", F.monotonically_increasing_id()+1) \
                         .withColumn("StoreInventoryID", (F.col("OrderID")*100000 + F.col("InventoryItemID")).cast("long")) \
                         .withColumn("TransactionType", F.lit("Usage")) \
@@ -135,16 +132,15 @@ def main(total_orders=5000000):
                         .withColumn("QuantityAfter", F.expr("QuantityBefore - ConsumeQty")) \
                         .withColumn("OrderIDRef", F.col("OrderID")) \
                         .withColumn("ReasonCode", F.lit("Sale")) \
-                        .withColumn("TransactionDateID", F.col("OrderDateID")) \
                         .withColumn("ProcessedBy", F.lit(None).cast("int")) \
-                        .select("TransactionID","StoreInventoryID","TransactionType","ConsumeQty","QuantityBefore","QuantityAfter","OrderIDRef","ReasonCode","TransactionDateID","ProcessedBy")
+                        .select("TransactionID","StoreInventoryID","TransactionType","ConsumeQty","QuantityBefore","QuantityAfter","OrderIDRef","ReasonCode","ProcessedBy")
         inv_txn = inv_txn.withColumnRenamed("ConsumeQty","Quantity")
         write_parquet(inv_txn, f"{azure_inv_path}/inventory_transactions")
         
         # Generate finance ledger
         ledger = orders.select("OrderID","OrderDateID","LocationID","SubtotalAmount","TaxAmount","TotalAmount") \
                  .withColumn("LedgerID", F.monotonically_increasing_id()+1) \
-                 .withColumn("EntryType","Revenue") \
+                 .withColumn("EntryType",F.lit("Revenue")) \
                  .withColumn("Amount", F.col("TotalAmount")) \
                  .withColumn("GLAccount", F.lit("4000")) \
                  .withColumn("CreatedDate", F.current_timestamp()) \
